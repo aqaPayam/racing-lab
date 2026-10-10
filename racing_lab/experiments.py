@@ -78,6 +78,7 @@ def evaluate_policy(
     policy_name="custom",
     reward_weights=None,
     render=False,
+    view="2d",
     on_episode=None,
 ):
     """Evaluate an observation-only callable; None selects the privileged reference driver.
@@ -96,7 +97,9 @@ def evaluate_policy(
 
         clock = pygame.time.Clock()
     for track in config.tracks:
-        env = RacingEnv(track, max_seconds=config.max_seconds, reward_weights=reward_weights)
+        env = RacingEnv(
+            track, max_seconds=config.max_seconds, reward_weights=reward_weights, view=view
+        )
         try:
             for episode in range(config.episodes):
                 seed = config.seed + episode
@@ -113,10 +116,16 @@ def evaluate_policy(
                     if render:
                         env.render()
                         env.viewer.note = "AUTONOMOUS EVALUATION | ESC exits"
+                        events = pygame.event.get()
+                        for event in events:
+                            if event.type == pygame.KEYDOWN and event.key == pygame.K_c:
+                                env.viewer.cycle_camera()
+                            if event.type == pygame.KEYDOWN and event.key == pygame.K_v:
+                                env.viewer.mode = "2d" if env.viewer.mode == "3d" else "3d"
                         if any(
                             e.type == pygame.QUIT
                             or (e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE)
-                            for e in pygame.event.get()
+                            for e in events
                         ):
                             interrupted = True
                             break

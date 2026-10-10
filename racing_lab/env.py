@@ -28,7 +28,12 @@ def wrap(x):
 class RacingEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
-    def __init__(self, track="monza", render_mode=None, max_seconds=300, reward_weights=None):
+    def __init__(
+        self, track="monza", render_mode=None, max_seconds=300, reward_weights=None, view="2d"
+    ):
+        if view not in ("2d", "3d"):
+            raise ValueError("view must be 2d or 3d")
+        self.view = view
         self.track = Track(track)
         self.render_mode = render_mode
         if render_mode not in (None, "human", "rgb_array"):

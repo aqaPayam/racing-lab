@@ -20,8 +20,33 @@ class Viewer:
         self.note = ""
         self.zoom = True
         self.trail = []
+        self.mode = env.view
+        self.scene3d = None
+
+    def cycle_camera(self):
+        if self.mode == "3d":
+            self._scene().camera = (self._scene().camera + 1) % 3
+        else:
+            self.zoom = not self.zoom
+
+    def _scene(self):
+        if self.scene3d is None:
+            from .scene3d import Scene3D
+
+            self.scene3d = Scene3D()
+        return self.scene3d
 
     def draw(self, rgb=False):
+        if self.mode == "3d":
+            self._scene().draw(self)
+            if not self.offscreen:
+                pygame.display.flip()
+            if rgb:
+                return np.transpose(pygame.surfarray.array3d(self.screen), (1, 0, 2))
+            return None
+        return self.draw_2d(rgb)
+
+    def draw_2d(self, rgb=False):
         env, screen = self.env, self.screen
         pts = env.track.points
         lo, hi = pts.min(axis=0), pts.max(axis=0)
@@ -117,6 +142,7 @@ class Viewer:
             "S / DOWN  brake",
             "A D / <>  steering",
             "C         camera",
+            "V         3D view",
             "R         new run",
             "ESC       save/exit",
             "",

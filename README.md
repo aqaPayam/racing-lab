@@ -1,10 +1,10 @@
 # Racing Lab
 
-**A Python 2D racing environment for human demonstrations and learning from imperfect experts.**
+**A Python racing environment with 3D and 2D views for learning from imperfect experts.**
 
 Drive locally, record and label your runs, train a supervised imitation baseline, and compare policies through one numerical-observation Gymnasium environment. The simulator is designed as a small, inspectable starting point for IO, IRL and RL research.
 
-![Game view](docs/game.png)
+![3D game view](docs/game-3d.png)
 
 ## Quick start
 
@@ -25,13 +25,16 @@ For the commands below, activate your environment (`.\.venv\Scripts\Activate.ps1
 | W / up | Throttle |
 | S / down | Brake |
 | A, D / left, right | Steering |
-| C | Following camera / overview |
+| C | Cycle chase / nose / aerial cameras (following / overview in 2D) |
+| V | Switch between 3D and 2D |
 | R | End run for labeling |
 | G / B / U | Save good / bad / unlabeled, then begin another run |
 | 1–4 between runs | Monza / Silverstone / Spa / Suzuka |
 | Esc | Save unlabeled and exit |
 
 ## Your first experiment
+
+The game now starts in **3D**. Use `--view 2d` for the original presentation. Replay and rendered evaluation also support `--view 3d` and `--view 2d`. Camera changes are visual only; they never change dynamics, observations, actions, or recording formats.
 
 Drive at least five varied runs and mark useful demonstrations **good**. Then:
 
@@ -75,7 +78,9 @@ Headless installation: `pip install -e .`. Add `[play]` for Pygame, `[train]` fo
 
 ## What is implemented?
 
-Four hand-authored circuit-inspired layouts; live keyboard driving; fixed-step simulation; numerical observations; continuous controls; labeled NPZ recordings; replay; supervised behavior cloning; configurable reward features; versioned evaluation reports; and a Gymnasium interface.
+Four hand-authored circuit-inspired layouts; 3D scenery and an open-wheel car; chase, nose and aerial cameras; an optional 2D view; live keyboard driving; fixed-step simulation; numerical observations; continuous controls; labeled NPZ recordings; replay; supervised behavior cloning; configurable reward features; versioned evaluation reports; and a Gymnasium interface.
+
+The portable 3D renderer uses perspective meshes, simple face shading, distance fog and a ground-contact car shadow. Scenery includes curbs, guardrails, trees, a pit building and a grandstand. It needs only the existing Pygame dependency, with no external assets or GPU setup. It is intentionally stylized: there are no photorealistic materials, dynamic lighting, suspension, elevation or scenery collisions. Software depth sorting can show minor overlap artifacts; press V for the lightweight research view. Performance depends on hardware, and rendering overload slows wall-clock play rather than dropping recorded simulation steps.
 
 **This is a research prototype, not a calibrated F1 simulator or an established benchmark.** Circuits are compact approximations, Suzuka has no bridge, and dynamics intentionally favor approachable driving. IO/IRL solvers and RL training algorithms are not bundled. The geometric reference controller is privileged and is not a learned baseline. Successful tests do not demonstrate that imitation improves on a human expert.
 

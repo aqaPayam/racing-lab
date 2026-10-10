@@ -11,7 +11,7 @@ from .learning import Policy, train
 def play(args):
     import pygame
 
-    env = RacingEnv(args.track, max_seconds=args.seconds)
+    env = RacingEnv(args.track, max_seconds=args.seconds, view=getattr(args, "view", "3d"))
     env.reset(seed=args.seed)
     env.render()
     clock = pygame.time.Clock()
@@ -37,7 +37,9 @@ def play(args):
                 if event.type != pygame.KEYDOWN:
                     continue
                 if event.key == pygame.K_c:
-                    env.viewer.zoom = not env.viewer.zoom
+                    env.viewer.cycle_camera()
+                if event.key == pygame.K_v:
+                    env.viewer.mode = "2d" if env.viewer.mode == "3d" else "3d"
                 if event.key == pygame.K_r and not paused:
                     paused = True
                 if paused and event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
@@ -92,7 +94,7 @@ def replay(args):
     )
     if track is None:
         raise ValueError("Recording track hash does not match an installed layout")
-    env = RacingEnv(track)
+    env = RacingEnv(track, view=getattr(args, "view", "3d"))
     env.reset()
     clock = pygame.time.Clock()
     try:
@@ -110,9 +112,15 @@ def replay(args):
             env.viewer.note = (
                 f"REPLAY | {meta['label']} | {i + 1}/{len(data['states'])} | ESC exits"
             )
+            events = pygame.event.get()
+            for event in events:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_c:
+                    env.viewer.cycle_camera()
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_v:
+                    env.viewer.mode = "2d" if env.viewer.mode == "3d" else "3d"
             if any(
                 e.type == pygame.QUIT or (e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE)
-                for e in pygame.event.get()
+                for e in events
             ):
                 break
             clock.tick(round(1 / meta["dt"]))
@@ -131,7 +139,9 @@ def evaluate(args):
         max_seconds=args.seconds,
         lateral_jitter=args.jitter,
     )
-    report = evaluate_policy(policy, config, policy_name=str(args.model), render=args.render)
+    report = evaluate_policy(
+        policy, config, policy_name=str(args.model), render=args.render, view=args.view
+    )
     if args.model:
         report["model_sha256"] = file_digest(args.model)
     save_report(report, args.output)
@@ -160,12 +170,14 @@ def main():
     parser = argparse.ArgumentParser(description="Racing Lab: drive, record, imitate, evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
     p = commands.add_parser("play", help="Drive and record demonstrations")
+    p.add_argument("--view", choices=["2d", "3d"], default="3d")
     p.add_argument("--track", choices=names(), default="monza")
     p.add_argument("--data", default="data")
     p.add_argument("--seconds", type=float, default=300)
     p.add_argument("--seed", type=int, default=0)
     p.set_defaults(func=play)
     p = commands.add_parser("replay")
+    p.add_argument("--view", choices=["2d", "3d"], default="3d")
     p.add_argument("file")
     p.set_defaults(func=replay)
     p = commands.add_parser("train")
@@ -197,6 +209,7 @@ def main():
         )
     )
     p = commands.add_parser("evaluate")
+    p.add_argument("--view", choices=["2d", "3d"], default="3d")
     p.add_argument(
         "--model", help="NPZ behavior cloning model; omit for geometric reference controller"
     )

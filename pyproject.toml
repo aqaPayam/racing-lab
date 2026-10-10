@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "racing-lab"
-version = "0.3.0"
-description = "A small reproducible 2D driving laboratory for imitation learning, IO and IRL research"
+version = "0.4.0"
+description = "A reproducible racing laboratory with 2D and 3D views for imitation, IO and IRL research"
 requires-python = ">=3.10"
 readme = "README.md"
 license = "MIT"

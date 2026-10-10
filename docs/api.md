@@ -16,6 +16,8 @@ env.close()
 
 Gymnasium registration is also available after `import racing_lab`: `gymnasium.make("RacingLab-v0", track="monza")`.
 
+Choose `RacingEnv(render_mode="human", view="3d")` for the perspective renderer or `view="2d"` for the original view. The Python API defaults to 2D for compatibility; CLI driving defaults to 3D. `evaluate_policy(..., render=True, view="3d")` displays any policy in 3D. Offscreen RGB output supports both views. Rendering and scenery have no effect on the numerical simulation. C cycles cameras and V changes presentation in the interactive CLI.
+
 ## Demonstrations and IO/IRL features
 
 ```python

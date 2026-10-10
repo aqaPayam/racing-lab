@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — 3D presentation
+
+- Perspective 3D track and open-wheel car, steering front tyres, curbs, barriers, trees, pit building, grandstand, and start gantry.
+- Chase, nose and aerial cameras, telemetry and minimap; C cycles cameras and V switches to the original 2D view.
+- Driving, replay and rendered evaluation default to 3D in the CLI. Python rendering retains the 2D default and accepts `view="3d"`.
+- Portable software renderer using the existing Pygame extra. No additional dependencies or downloaded artwork.
+- Simulator compatibility remains 0.2.0; observations, dynamics, datasets and trained policies are unchanged.
+
 ## 0.3.0 — Research tooling
 
 - Public evaluation/configuration API, aligned dataset arrays, discounted feature sums, and trusted simulator snapshots.
