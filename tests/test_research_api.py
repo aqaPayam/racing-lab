@@ -47,6 +47,8 @@ def test_record_actual_action_and_validate_corruption(tmp_path):
     rec.append(action, env.step(action))
     path = rec.save(tmp_path, reason="test")
     data = load_trajectory(path)
+    assert data["telemetry"].shape == (1, 5)
+    assert data["metadata"]["dynamics_parameters"]["mass"] == 800
     np.testing.assert_array_equal(data["actions"], [env.action])
     obs, act, nxt = transitions(data)
     assert obs.shape == nxt.shape == (1, 20)

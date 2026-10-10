@@ -1,6 +1,6 @@
 """Shared dimensions in metres; these are game parameters, not homologation data."""
 
-SIMULATOR_VERSION = "0.2.0"
+SIMULATOR_VERSION = "0.3.0"
 CAR_LENGTH = 5.5
 CAR_WIDTH = 1.9
 WHEELBASE = 3.4

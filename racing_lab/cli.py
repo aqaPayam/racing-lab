@@ -96,12 +96,15 @@ def replay(args):
         raise ValueError("Recording track hash does not match an installed layout")
     env = RacingEnv(track, view=getattr(args, "view", "3d"))
     env.reset()
+    env.telemetry_available = "telemetry" in data
     clock = pygame.time.Clock()
     try:
         for i, state in enumerate(data["states"]):
             env.pos = state[:2].copy()
             env.heading, env.speed, env.lateral_speed, env.yaw_rate, env.steering = state[2:]
             env.steps = i
+            if i > 0 and "telemetry" in data:
+                env.telemetry.update(dict(zip(meta["telemetry_names"], data["telemetry"][i - 1])))
             env.progress = float(data["reward_features"][:i, 0].sum())
             env.offtrack_steps = int(round(-data["reward_features"][:i, 2].sum() / meta["dt"]))
             gate = env.next_checkpoint * env.track.length / 40

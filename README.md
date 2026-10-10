@@ -70,6 +70,7 @@ Headless installation: `pip install -e .`. Add `[play]` for Pygame, `[train]` fo
 
 ## Documentation
 
+- [Physics model](docs/physics.md): tyre forces, aero, load transfer, parameters, and compatibility.
 - [Research guide](docs/research-guide.md): dynamics, tracks, observations, data schema, and limitations.
 - [Python API and experiments](docs/api.md): dataset arrays, reward features, snapshots, reproducible evaluation, and held-out tracks.
 - [Contributing](CONTRIBUTING.md): checks and compatibility rules.
@@ -80,8 +81,10 @@ Headless installation: `pip install -e .`. Add `[play]` for Pygame, `[train]` fo
 
 Four hand-authored circuit-inspired layouts; 3D scenery and an open-wheel car; chase, nose and aerial cameras; an optional 2D view; live keyboard driving; fixed-step simulation; numerical observations; continuous controls; labeled NPZ recordings; replay; supervised behavior cloning; configurable reward features; versioned evaluation reports; and a Gymnasium interface.
 
+The driving model now includes axle tyre slip, combined braking/cornering grip, power-limited rear-wheel drive, aerodynamic downforce and drag, and longitudinal load transfer. New force telemetry is visible and recorded. **This physics upgrade requires new demonstrations and retrained models**; older recordings remain visually replayable. See the [physics specification](docs/physics.md).
+
 The portable 3D renderer uses perspective meshes, simple face shading, distance fog and a ground-contact car shadow. Scenery includes curbs, guardrails, trees, a pit building and a grandstand. It needs only the existing Pygame dependency, with no external assets or GPU setup. It is intentionally stylized: there are no photorealistic materials, dynamic lighting, suspension, elevation or scenery collisions. Software depth sorting can show minor overlap artifacts; press V for the lightweight research view. Performance depends on hardware, and rendering overload slows wall-clock play rather than dropping recorded simulation steps.
 
-**This is a research prototype, not a calibrated F1 simulator or an established benchmark.** Circuits are compact approximations, Suzuka has no bridge, and dynamics intentionally favor approachable driving. IO/IRL solvers and RL training algorithms are not bundled. The geometric reference controller is privileged and is not a learned baseline. Successful tests do not demonstrate that imitation improves on a human expert.
+**This is a research prototype, not a calibrated F1 simulator or an established benchmark.** Circuits are compact approximations, Suzuka has no bridge, and dynamics use generic force-based open-wheel parameters. IO/IRL solvers and RL training algorithms are not bundled. The geometric reference controller is privileged and is not a learned baseline. Successful tests do not demonstrate that imitation improves on a human expert.
 
 MIT licensed. Not affiliated with Formula 1 or the named circuits.

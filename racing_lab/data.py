@@ -7,6 +7,7 @@ from uuid import uuid4
 import numpy as np
 from .env import DT, OBS_NAMES
 from .vehicle import SIMULATOR_VERSION, CAR_LENGTH, CAR_WIDTH, WHEELBASE
+from .dynamics import parameter_dict
 
 
 class Recorder:
@@ -22,6 +23,7 @@ class Recorder:
         self.states = [env.state()]
         self.actions, self.rewards, self.features = [], [], []
         self.terminated, self.truncated = [], []
+        self.telemetry = []
         self.source, self.seed = source, env.reset_seed
 
     def append(self, action, transition):
@@ -42,6 +44,18 @@ class Recorder:
         )
         self.terminated.append(terminated)
         self.truncated.append(truncated)
+        self.telemetry.append(
+            [
+                info["telemetry"][k]
+                for k in (
+                    "longitudinal_g",
+                    "lateral_g",
+                    "downforce_n",
+                    "front_slip_deg",
+                    "rear_slip_deg",
+                )
+            ]
+        )
 
     def save(self, directory="data", label="unlabeled", reason="completed"):
         if not self.actions:
@@ -56,6 +70,14 @@ class Recorder:
         meta = {
             "schema_version": 1,
             "simulator_version": SIMULATOR_VERSION,
+            "dynamics_parameters": parameter_dict(),
+            "telemetry_names": [
+                "longitudinal_g",
+                "lateral_g",
+                "downforce_n",
+                "front_slip_deg",
+                "rear_slip_deg",
+            ],
             "track": env.track.name,
             "vehicle": {"length_m": CAR_LENGTH, "width_m": CAR_WIDTH, "wheelbase_m": WHEELBASE},
             "track_version": env.track.version,
@@ -84,6 +106,7 @@ class Recorder:
             terminated=np.asarray(self.terminated),
             truncated=np.asarray(self.truncated),
             timestamps=np.arange(len(self.states)) * DT,
+            telemetry=np.asarray(self.telemetry),
             metadata=json.dumps(meta),
         )
         return path
@@ -123,6 +146,9 @@ def validate(data):
     if not np.isfinite(meta["dt"]) or meta["dt"] <= 0:
         raise ValueError("Invalid timestep")
     n = len(data["actions"])
+    if "telemetry" in data:
+        if data["telemetry"].shape != (n, 5) or not np.isfinite(data["telemetry"]).all():
+            raise ValueError("telemetry must be a finite T x 5 array")
     if n < 1:
         raise ValueError("Empty trajectory")
     shapes = {

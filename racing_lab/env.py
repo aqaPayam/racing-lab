@@ -5,7 +5,8 @@ from copy import deepcopy
 import gymnasium as gym
 from gymnasium import spaces
 from .track import Track
-from .vehicle import WHEELBASE, road_envelope, SIMULATOR_VERSION
+from .vehicle import road_envelope, SIMULATOR_VERSION
+from .dynamics import advance
 
 DT = 1 / 60
 LOOKAHEAD = np.array([10, 25, 50, 90, 150, 230], dtype=float)
@@ -66,6 +67,7 @@ class RacingEnv(gym.Env):
             [-np.sin(self.heading), np.cos(self.heading)]
         )
         self.speed = self.lateral_speed = self.yaw_rate = self.steering = 0.0
+        self.telemetry = advance(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, 0.0)[-1]
         self.steps = self.offtrack_steps = 0
         self.progress = self.last_s = self.smoothness = 0.0
         self.last_s = self.track.project(self.pos)[0]
@@ -100,6 +102,7 @@ class RacingEnv(gym.Env):
             "done",
             "reset_seed",
             "reset_options",
+            "telemetry",
         )
         return {
             "simulator_version": SIMULATOR_VERSION,
@@ -163,6 +166,7 @@ class RacingEnv(gym.Env):
             "lap_time": self.steps * DT if success else None,
             "smoothness": self.smoothness / max(1, self.steps),
             "checkpoint": self.next_checkpoint - 1,
+            "telemetry": self.telemetry.copy(),
         }
 
     def step(self, action):
@@ -177,23 +181,25 @@ class RacingEnv(gym.Env):
         self.action = a.copy()
         self.steering += np.clip(a[0] * 0.45 - self.steering, -1.5 * DT, 1.5 * DT)
         off = self.info()["offtrack"]
-        accel = a[1] * 12 - a[2] * 24 - 0.0017 * self.speed**2 - 0.12 * self.speed
-        if off:
-            accel -= 1.8 * self.speed
-        self.speed = float(np.clip(self.speed + accel * DT, 0, 85))
-        desired_yaw = self.speed / WHEELBASE * np.tan(self.steering)
-        grip = (8 if off else 17) / max(self.speed, 2)
-        target_yaw = np.clip(desired_yaw, -grip, grip)
-        self.yaw_rate += (target_yaw - self.yaw_rate) * min(1, DT * 9)
-        self.lateral_speed += (
-            ((desired_yaw - self.yaw_rate) * self.speed * 0.07 - self.lateral_speed) * DT * 5
-        )
-        self.lateral_speed = float(np.clip(self.lateral_speed, -15, 15))
-        self.heading = wrap(self.heading + self.yaw_rate * DT)
-        forward = np.array([np.cos(self.heading), np.sin(self.heading)])
-        self.pos += DT * (
-            forward * self.speed + np.array([-forward[1], forward[0]]) * self.lateral_speed
-        )
+        # Integrate axle forces at 240 Hz while retaining the 60 Hz research API.
+        for _ in range(4):
+            self.speed, self.lateral_speed, self.yaw_rate, self.telemetry = advance(
+                self.speed,
+                self.lateral_speed,
+                self.yaw_rate,
+                self.steering,
+                float(a[1]),
+                float(a[2]),
+                off,
+                DT / 4,
+            )
+            self.heading = wrap(self.heading + self.yaw_rate * DT / 4)
+            forward = np.array([np.cos(self.heading), np.sin(self.heading)])
+            self.pos += (
+                DT
+                / 4
+                * (forward * self.speed + np.array([-forward[1], forward[0]]) * self.lateral_speed)
+            )
         s, lateral, _ = self.track.project(self.pos)
         delta = (
             s - self.last_s + self.track.length / 2

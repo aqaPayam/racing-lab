@@ -25,6 +25,8 @@ class Scene3D:
         self.camera = 0
         self.track_hash = None
         self.faces = []
+        self.wheel_phase = 0.0
+        self.last_step = 0
 
     @staticmethod
     def box(center, size, color, angle=0):
@@ -217,7 +219,17 @@ class Scene3D:
         n = np.array([-f[1], f[0]])
 
         def part(x, y, z, size, color, steer=0):
-            faces.extend(self.box([*(env.pos + f * x + n * y), z], size, color, angle + steer))
+            # Small visual body attitude cues; no suspension state is invented.
+            pitch = np.clip(env.telemetry["longitudinal_g"] * 0.012, -0.035, 0.035)
+            roll = np.clip(env.telemetry["lateral_g"] * 0.01, -0.035, 0.035)
+            faces.extend(
+                self.box(
+                    [*(env.pos + f * x + n * y), z + x * pitch + y * roll],
+                    size,
+                    color,
+                    angle + steer,
+                )
+            )
 
         # Dimensions follow the 5.5 x 1.9 m simulator envelope.
         part(-0.35, 0, 0.42, [3.5, 1.02, 0.44], (204, 40, 41))
@@ -264,6 +276,23 @@ class Scene3D:
                     faces.append((ring, (39, 43, 48)))
                     center = ring.mean(axis=0)
                     faces.append((center + (ring - center) * 0.5, (132, 141, 147)))
+                    # Alternating bright spokes provide visible wheel rotation.
+                    for phase in np.arange(5) * 2 * np.pi / 5 + self.wheel_phase:
+                        spoke = []
+                        for radius, offset in [
+                            (0.035, -0.12),
+                            (0.17, -0.12),
+                            (0.17, 0.12),
+                            (0.035, 0.12),
+                        ]:
+                            spoke.append(
+                                center
+                                + np.r_[
+                                    wf * radius * np.cos(phase + offset),
+                                    radius * np.sin(phase + offset),
+                                ]
+                            )
+                        faces.append((np.asarray(spoke), (207, 215, 219)))
         return faces
 
     def draw(self, viewer):
@@ -272,6 +301,12 @@ class Scene3D:
         w, h = screen.get_size()
         if self.track_hash != env.track.digest:
             self.build_track(env.track)
+        if env.steps < self.last_step:
+            self.wheel_phase = 0.0
+        self.wheel_phase = (
+            self.wheel_phase + env.speed * max(0, env.steps - self.last_step) / 60 / 0.36
+        ) % (2 * np.pi)
+        self.last_step = env.steps
         f = np.array([np.cos(env.heading), np.sin(env.heading), 0.0])
         pos = np.array([*env.pos, 0.0])
         if self.camera == 0:
@@ -410,5 +445,36 @@ class Scene3D:
         pygame.draw.circle(screen, (255, 196, 73), map_point(env.pos), 5)
         if info["offtrack"]:
             screen.blit(viewer.title.render("OFF TRACK", True, (255, 171, 88)), (490, 115))
+        panel((325, 745, 345, 100))
+        t = env.telemetry
+        if not getattr(env, "telemetry_available", True):
+            screen.blit(
+                viewer.font.render("Legacy replay: no force data", True, (217, 230, 235)),
+                (338, 783),
+            )
+            panel((22, 855, 1156, 32))
+            screen.blit(viewer.font.render(viewer.note[:105], True, (247, 220, 148)), (32, 861))
+            return
+        screen.blit(
+            viewer.font.render(
+                f"LONG {t['longitudinal_g']:+.2f} g   LAT {t['lateral_g']:+.2f} g",
+                True,
+                (217, 230, 235),
+            ),
+            (338, 755),
+        )
+        screen.blit(
+            viewer.font.render(
+                f"DOWNFORCE {t['downforce_n'] / 1000:.1f} kN", True, (137, 219, 194)
+            ),
+            (338, 783),
+        )
+        slip = max(abs(t["front_slip_deg"]), abs(t["rear_slip_deg"]))
+        screen.blit(
+            viewer.font.render(
+                f"TYRE SLIP {slip:.1f} deg", True, (255, 172, 90) if slip > 8 else (217, 230, 235)
+            ),
+            (338, 811),
+        )
         panel((22, 855, 1156, 32))
         screen.blit(viewer.font.render(viewer.note[:105], True, (247, 220, 148)), (32, 861))

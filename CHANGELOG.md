@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 — Force-based driving (simulator 0.3.0)
+
+- Replaced the arcade yaw/grip rule with a planar dynamic bicycle model: front/rear tyre slip, shared longitudinal/lateral friction circles, yaw inertia, rear-wheel traction, brake balance, quasi-static longitudinal load transfer, aerodynamic downforce and drag, and reduced grass grip.
+- Four internal force steps per 60 Hz action. Power/traction-limited acceleration and speed-dependent aero produce approximately 2.4 s 0–100 km/h and 324 km/h terminal speed in isolated straight-line tests, not calibrated F1 performance.
+- G-force, axle slip and downforce diagnostics; optional recorded telemetry and explicit parameter provenance.
+- Rotating wheel spokes and small telemetry-driven visual body attitude cues. These cues do not simulate suspension.
+- Physics compatibility changed: collect new demonstrations and retrain models for simulator 0.3.0. Older visual replays remain supported. Maps remain unchanged: four circuit-inspired layouts.
+
 ## 0.4.0 — 3D presentation
 
 - Perspective 3D track and open-wheel car, steering front tyres, curbs, barriers, trees, pit building, grandstand, and start gantry.

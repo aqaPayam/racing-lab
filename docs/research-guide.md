@@ -10,15 +10,13 @@ Add a JSON file under `racing_lab/tracks/` with `name`, `version`, `width` (metr
 
 The 20 float32 observations contain normalized speed, lateral speed, yaw rate, steering angle, lateral road offset, sine/cosine of road-relative heading, road half-width, and six upcoming centerline positions expressed in car coordinates (10, 25, 50, 90, 150, 230 metres ahead). This is a compact local-road description, not global coordinates or images. The preview coordinates and known width describe the nearby road; they do not encode every possible custom-track topology. See `OBS_NAMES` in `racing_lab/env.py` for ordering and normalization.
 
-The simulator uses a simplified bicycle model, steering slew limits, speed-dependent cornering grip, lateral slip, drag, and off-road deceleration. It is an approachable game model, **not an engineering-accurate F1 model**. Cars cannot reverse. Ordered road checkpoints discourage shortcuts; they do not constitute exact continuous boundary enforcement between gates.
+The simulator uses a force-based dynamic bicycle model with axle slip, friction circles, aero, and longitudinal load transfer. See the [physics specification](physics.md) for equations, parameters, measured simulation behavior, and limitations.
 
-### Scale and speed (simulator 0.2.0)
+### Scale and compatibility (simulator 0.3.0)
 
-All positions and dimensions use metres, speeds use metres/second internally, and the HUD converts to km/h. The car is 5.5 m long and 1.9 m wide, with a 3.4 m wheelbase. The renderer uses these same dimensions without enlarging the car. The default following camera uses 8 pixels/metre at rest and widens toward 4 pixels/metre at speed, looking ahead along the heading so braking points stay visible. The overview adds a locator ring around the physically scaled car. Both views include a 10 m scale bar.
+The car remains 5.5 m long and 1.9 m wide, with a 3.4 m wheelbase. Roads are 14 m (Monza/Suzuka) or 16 m (Silverstone/Spa), and circuits are compact 2.2�2.6 km approximations. The 3D view uses metres throughout; the optional 2D view includes a 10 m scale bar. Straight-line terminal speed is now approximately 324 km/h, governed by drive power and aerodynamic drag.
 
-Road widths are 14 m (Monza/Suzuka) or 16 m (Silverstone/Spa): about 7.4–8.4 car widths. These are chosen game widths, not measurements of the named real circuits. Layouts remain compact, approximately 2.2–2.6 km. Straight-line terminal speed is about 201 km/h under the drag model, even though the numerical speed cap is 306 km/h. Nominal lateral grip is 17 m/s² (about 1.73 g), so a 50 m radius bend suggests about 105 km/h under the steady-state bicycle approximation. Acceleration, braking and grip are deliberately approachable game settings, not calibrated real F1 performance.
-
-Road-edge checks include the car's width and heading-dependent length projected across the local road tangent. This is a rectangular-envelope approximation, not exact tyre contact simulation on curved boundaries. Legacy track files are retained for replay of version 0.1.0 recordings. Old recordings remain untouched; training rejects incompatible simulator versions instead of silently mixing different dynamics. Current package releases retain simulator 0.2.0 compatibility; record new demonstrations when migrating from simulator 0.1.0.
+Road-edge checks use the rectangular car envelope projected across the local tangent. The vehicle cannot reverse, and ordered checkpoints discourage but do not eliminate all shortcuts. Legacy track layouts are retained for visual replay. Older recordings are untouched, but models trained on simulator 0.2.0 or earlier must be retrained on new simulator 0.3.0 demonstrations.
 
 ## Dataset format and inverse-learning hooks
 
@@ -32,6 +30,7 @@ Each `.npz` file loads with `numpy.load(path, allow_pickle=False)`:
 | rewards | T | Scalar reward |
 | reward_features | T × 4 | Progress delta, negative dt, negative off-road dt, negative squared action change |
 | terminated / truncated | T | Gymnasium terminal and timeout flags |
+| telemetry (new recordings) | T � 5 | Longitudinal/lateral g, downforce N, front/rear slip degrees |
 | timestamps | T+1 | Simulation seconds |
 | metadata | scalar JSON | Label, source, track version/hash, seed, schema, names, weights, outcome, stop reason |
 

@@ -123,8 +123,8 @@ def test_longitudinal_speed_and_braking():
         env.step([0, 1, 0])
         if zero_to_100 is None and env.speed * 3.6 >= 100:
             zero_to_100 = (i + 1) / 60
-    assert 2.5 < zero_to_100 < 4
-    assert 199 < env.speed * 3.6 < 202
+    assert 2 < zero_to_100 < 3.5
+    assert 320 < env.speed * 3.6 < 328
     env.speed = 100 / 3.6
     distance = 0.0
     for _ in range(120):
@@ -134,7 +134,7 @@ def test_longitudinal_speed_and_braking():
         if env.speed == 0:
             break
     assert env.speed == 0
-    assert 12 < distance < 18
+    assert 18 < distance < 25
 
 
 def test_play_save_label_and_exit(tmp_path, monkeypatch):

@@ -12,6 +12,7 @@ import numpy as np
 
 from .env import RacingEnv, DT
 from .vehicle import SIMULATOR_VERSION
+from .dynamics import parameter_dict
 
 
 def file_digest(path):
@@ -160,6 +161,7 @@ def evaluate_policy(
         "reward_weights": weights,
         "dt": DT,
         "runtime": runtime_versions(),
+        "dynamics_parameters": parameter_dict(),
         "interrupted": interrupted,
         "episodes": rows,
         "summary": summarize(rows),
