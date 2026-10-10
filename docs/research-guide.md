@@ -2,49 +2,58 @@
 
 ## Tracks
 
-`monza`, `silverstone`, `spa`, and `suzuka` are selectable with `--track`. These are original, hand-authored **approximations inspired by circuit shapes**, not surveyed replicas or official assets. Distances and widths are scaled for this prototype. There is no elevation or banking; Suzuka is explicitly adapted to avoid a bridge crossing. No F1 branding assets are included, and this project is not affiliated with Formula 1 or the circuits.
+Eight bundled layouts are available. All are original hand-authored approximations inspired by circuit shapes, not official assets or surveyed replicas. The four compact layouts retain their geometry and hashes for historical replay. The four `_long` variants extend the proportions and add smooth illustrative height/banking profiles. Suzuka remains a non-crossing adaptation.
 
-Add a JSON file under `racing_lab/tracks/` with `name`, `version`, `width` (metres), and an ordered loop of `[x, y]` centerline control points. Coordinates use screen-style positive y downward. The road is interpolated with a periodic Catmull-Rom curve. Avoid intersecting roads and bends closer together than their widths. Increment the version whenever geometry changes; recordings also store a SHA-256 digest of the exact file.
+| CLI identifier | Approximate length | Road width | Profile |
+| --- | --- | --- | --- |
+| monza / monza_long | 2.2 km / 5.3 km | 14 m | Flat / gentle height and bank |
+| silverstone / silverstone_long | 2.2 km / 5.6 km | 16 m | Flat / rolling |
+| spa / spa_long | 2.6 km / 6.8 km | 16 m | Flat / pronounced elevation |
+| suzuka / suzuka_long | 2.6 km / 5.8 km | 14 m | Flat / rolling |
 
-## Observations and dynamics
+Use `Track(name).length` for exact interpolated metres. Add a JSON file with `name`, `version`, `width` and ordered `[x,y]` centerline control points. Coordinates are metres, with positive y downward in the map. The closed curve uses periodic Catmull-Rom interpolation. Do not repeat the first control point or create intersecting/overlapping roads. Optional `shoulder` is metres per side (default 2). Optional `profile` rows are `[lap_fraction,height_m,bank_degrees]`, ordered from fraction 0 to less than 1. A periodic cubic Hermite curve supplies height, its grade derivative, and bank. Increment track versions when geometry changes; recordings store the exact file hash.
 
-The 20 float32 observations contain normalized speed, lateral speed, yaw rate, steering angle, lateral road offset, sine/cosine of road-relative heading, road half-width, and six upcoming centerline positions expressed in car coordinates (10, 25, 50, 90, 150, 230 metres ahead). This is a compact local-road description, not global coordinates or images. The preview coordinates and known width describe the nearby road; they do not encode every possible custom-track topology. See `OBS_NAMES` in `racing_lab/env.py` for ordering and normalization.
+## Observations and actions
 
-The simulator uses a force-based dynamic bicycle model with axle slip, friction circles, aero, and longitudinal load transfer. See the [physics specification](physics.md) for equations, parameters, measured simulation behavior, and limitations.
+The **39 float32 observations** begin with the previous 20 fields: normalized forward/lateral speed, yaw rate, steering, lateral offset, sine/cosine of relative heading, road width/40, and six upcoming centerline points in car coordinates (10, 25, 50, 90, 150, 230 m). They add gear, RPM, four wheel angular speeds, four slip ratios, pitch/roll and their rates, local grade/bank, shift interruption, reverse flag, and barrier contact. `racing_lab.env.OBS_NAMES` specifies exact order and normalization. These are direct numerical inputs, never image observations.
 
-### Scale and compatibility (simulator 0.4.0)
+Actions remain `[steering,throttle,brake]` in `[-1,1] × [0,1] × [0,1]`. Policies bypass keyboard shaping. Vehicle aids are environment configuration and therefore apply equally to a human or policy using that configuration. Metadata distinguishes them from input-device settings. For manual/reverse/recovery studies, `step(action, commands={...})` supports supplemental commands; the minimal three-output BC baseline deliberately rejects demonstrations requiring them. A custom Gym wrapper can incorporate them into an expanded action space.
 
-The car remains 5.5 m long and 1.9 m wide, with a 3.4 m wheelbase. Roads are 14 m (Monza/Suzuka) or 16 m (Silverstone/Spa), and circuits are compact 2.2–2.6 km approximations. The 3D view uses metres throughout; the optional 2D view includes a 10 m scale bar. Straight-line terminal speed is now approximately 324 km/h, governed by drive power and aerodynamic drag.
+The observation is intentionally compact, **not a complete Markov state**. It omits previous action, filtered accelerations, shift cooldown, lap counters, and distant road profiles/topology. Use an observation wrapper/recurrent model where needed, and snapshots for exact branching. See the [physics model](physics.md) and [API](api.md).
 
-Road-edge checks use the rectangular car envelope projected across the local tangent. The vehicle cannot reverse, and ordered checkpoints discourage but do not eliminate all shortcuts. Legacy track layouts are retained for visual replay. Older recordings are untouched, but models trained on simulator 0.3.0 or earlier must be retrained on new simulator 0.4.0 demonstrations.
+## Schema 2 datasets
 
-## Dataset format and inverse-learning hooks
-
-Each `.npz` file loads with `numpy.load(path, allow_pickle=False)`:
+NPZ files contain numerical arrays and a JSON metadata scalar; `numpy.load(...,allow_pickle=False)` is sufficient. Public `load_trajectory()` additionally validates them. `T` is the number of transitions.
 
 | Array | Shape | Meaning |
 | --- | --- | --- |
-| observations | T+1 × 20 | Initial observation and every next observation |
-| states | T+1 × 7 | x, y, heading, speed, lateral speed, yaw rate, steering |
-| actions | T × 3 | Controls applied from observation t to observation t+1 |
-| rewards | T | Scalar reward |
-| reward_features | T × 4 | Progress delta, negative dt, negative off-road dt, negative squared action change |
-| terminated / truncated | T | Gymnasium terminal and timeout flags |
-| telemetry (new recordings) | T × 5 | Longitudinal/lateral g, downforce N, front/rear slip degrees |
+| observations | T+1 × 39 | Initial and successor observations |
+| states | T+1 × 7 | x, y, heading, forward/lateral velocity, yaw rate, steering |
+| vehicle_states | T+1 × 22 | Named drivetrain, sprung-body, and four-wheel states |
+| actions | T × 3 | Applied continuous controls |
+| commands | T × 3 | Requested shift (-1/0/1), direction (-1/0/1), recovery (0/1) |
+| contacts | T × 4 | Barrier contact, peak closing speed m/s, collision/recovery counters |
+| rewards | T | Scalar weighted reward |
+| reward_features | T × 6 | Progress, negative dt, negative offroad dt, negative action-change squared, negative impact speed, negative recovery |
+| telemetry | T × 13 | Named g-forces, downforce, slip angles, RPM, gear, pitch/roll, grade/bank, active TC/ABS |
+| terminated / truncated | T | Boolean lap-finish and timeout flags |
 | timestamps | T+1 | Simulation seconds |
-| metadata | scalar JSON | Label, source, track version/hash, seed, schema, names, weights, outcome, stop reason |
+| metadata | JSON scalar | Versions, ordered names, track hash, seed/reset, device/aid configuration, parameters, label/source, outcome |
 
-Manual exits/interruption are described by `reason` and do not falsely set a simulator timeout flag. Full states support exact visual trajectory replay; replay does not depend on a newly trained model. Replay requires the matching installed track hash.
+Metadata is the authoritative field order. Wheel order is front-left, front-right, rear-left, rear-right. Vehicle states contain ten scalar fields followed by four angular speeds, four spin angles, and four slip ratios. New files use schema 2 / simulator 0.5.0. Schema 1 files remain loadable for analysis and visual replay; their dimensions are described by their metadata, not current constants.
 
-Reward is a weighted sum of the four recorded features. Defaults are `progress=1`, `time=0.1`, `offtrack=2`, `smoothness=0.02`. Override through `RacingEnv(reward_weights={...})`. This keeps feature-level evidence available for inverse methods; labels make no assumption that a human run is optimal. The physical `states` array does not include all episode bookkeeping; use `snapshot()` / `restore()` for exact in-memory branching, or replay actions from the same seed and reset options for reconstruction rather than treating a state row as a complete environment checkpoint.
+Default reward weights are `progress=1,time=.1,offtrack=2,smoothness=.02,collision=1,recovery=20`. Override through `RacingEnv(reward_weights={...})`. These features support linear IO/IRL objectives but do not identify a unique reward or implement an inverse solver. Equal-duration demonstrations do not distinguish a time preference from their time feature alone. A human's good label denotes their judgment, not guaranteed optimality, clean driving, or completion.
 
-For track-generalization experiments, collect training data only on selected circuits and evaluate separately on held-out circuits. The ordinary training split is by run, not automatically by track. Keep the test set out of parameter tuning.
+Recordings store actual applied actions and requested supplemental commands. To reconstruct current runs, start the same version, track, reset seed/options and `DrivingConfig`, then replay both arrays. Seven-value state rows alone cannot restore the simulator. `snapshot()` / `restore()` includes hidden vehicle dynamics and bookkeeping for exact in-memory counterfactuals.
 
-For setup and controls, see the [quick start](../README.md). For evaluation, snapshots and data-loading examples, see the [Python API](api.md). For development checks, see [Contributing](../CONTRIBUTING.md).
+## Experimental discipline
 
+Collect training runs on chosen tracks and reserve others for evaluation. The BC baseline splits by whole run and rejects duplicates, incompatible simulator versions, mixed vehicle aid configurations, and supplemental-command demonstrations. Keep correlated sessions separate when designing research splits. A model's saved aid configuration is reused in evaluation. Report completion, collisions, recoveries and off-track rates alongside conditional successful lap times. A fast failed run is not a successful fast lap.
 
-## Human input and presentation
+The privileged geometric controller uses full track geometry and is a testing tool, not learned evidence. IO/IRL solvers and RL training are left to the researcher through the headless Python/Gymnasium API. Demonstrations, models, practice ghosts, and local reports remain git-ignored and are never uploaded automatically.
 
-New human recordings contain `metadata.control_settings`: keyboard adapter version, assistance flag, steering rise/return times, and the geometric lateral-acceleration limit. The `actions` array always contains the final controls delivered to `env.step`, so action replay does not depend on reproducing keyboard events. A learned policy should output these direct controls; do not apply the keyboard adapter to its outputs a second time. Control settings describe the data-collection policy, not a change to the 20-observation environment.
+## Presentation and practice
 
-The renderer is optional and lazy-loaded. `RacingEnv(renderer="auto", view="3d")` uses a GPU if available; `renderer="software"` forces the fallback. Training without rendering imports neither graphics library. All renderer randomness is local and fixed; it does not consume the environment RNG. See [driving and validation](driving.md) for timing behavior.
+Rendering/audio are optional and lazily imported. Scenery uses a private fixed RNG; it never consumes simulation randomness. 2D and 3D share one physics engine. The fixed-step scheduler maintains simulation time under ordinary frame drops and explicitly pauses stalls longer than 0.5 s. A severely overloaded computer cannot guarantee realtime play.
+
+Practice ghosts are local presentation data, never labeled expert demonstrations. A best lap requires completion with no off-road steps, impacts, or recovery and is partitioned by track hash, simulator, aid configuration and initial state. Compare two same-track recordings with `python -m racing_lab.cli compare first.npz second.npz`; the standalone HTML and companion JSON show speed, braking and XY trajectory. The report preserves simulator versions; comparing historical physics is descriptive, not a controlled experiment.

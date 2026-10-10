@@ -12,11 +12,11 @@ obs, reward, terminated, truncated, info = env.step([0., .6, 0.])
 env.close()
 ```
 
-`track` accepts a bundled identifier or a path to a custom JSON circuit. Actions are steering [-1,1], throttle [0,1], brake [0,1]; finite out-of-range inputs are clipped. There are 20 float32 observations; their exact order is `racing_lab.env.OBS_NAMES`. `terminated` means lap completion; `truncated` means the simulation timeout. Reset after either. The default render mode is None; `human` opens a window, while `rgb_array` returns an offscreen RGB array (requires the play extra).
+`track` accepts a bundled identifier or a path to a custom JSON circuit. Actions are steering [-1,1], throttle [0,1], brake [0,1]; finite out-of-range inputs are clipped. There are 39 float32 observations; their exact order is `racing_lab.env.OBS_NAMES`. `terminated` means finishing all lap gates (including recovered invalid laps); `info["success"]` excludes recovery; `truncated` means the simulation timeout. Reset after either. The default render mode is None; `human` opens a window, while `rgb_array` returns an offscreen RGB array (requires the play extra).
 
 Gymnasium registration is also available after `import racing_lab`: `gymnasium.make("RacingLab-v0", track="monza")`.
 
-Choose `RacingEnv(render_mode="human", view="3d")` for the perspective renderer or `view="2d"` for the original view. The Python API defaults to 2D for compatibility; CLI driving defaults to 3D. `evaluate_policy(..., render=True, view="3d")` displays any policy in 3D. Offscreen RGB output supports both views. Rendering and scenery have no effect on the numerical simulation. C cycles cameras and V changes presentation in the interactive CLI. The optional `renderer` argument accepts `auto` (default), `gpu`, or `software`. Explicit `gpu` raises an error when unavailable; `auto` warns and falls back. Headless `step()` never initializes a renderer.
+Choose `RacingEnv(render_mode="human", view="3d")` for the perspective renderer or `view="2d"` for the top-down view. The Python API defaults to 2D for compatibility; CLI driving defaults to 3D. `evaluate_policy(..., render=True, view="3d")` displays any policy in 3D. Offscreen RGB output supports both views. Rendering and scenery have no effect on the numerical simulation. C cycles cameras and V changes presentation in the interactive CLI. The optional `renderer` argument accepts `auto` (default), `gpu`, or `software`. Explicit `gpu` raises an error when unavailable; `auto` warns and falls back. Headless `step()` never initializes a renderer.
 
 ## Demonstrations and IO/IRL features
 
@@ -37,7 +37,7 @@ phi = feature_sum(trajectory, gamma=.99)
 
 Create a recorder immediately after reset and append once after each step. The optional `control_settings` dictionary is copied into recording metadata; CLI driving fills it automatically. It captures the action actually applied by the simulator, including clipping, and retains the reset seed/options. Use an honest `source`; the built-in supervised trainer selects `source=human`, `label=good` only. Imperfect or interrupted demonstrations are allowed and their completion status remains separate from their quality label.
 
-Loading validates array shapes, finite values, action limits, terminal flags, timestamps, feature order, and reward reconstruction. It never loads pickle objects. `transitions` returns views into the loaded arrays. `feature_sum` aggregates `[progress_delta, -dt, -offroad_dt, -squared_action_change]`; this supports linear reward/cost formulations but does not implement an inverse solver or imply feature identifiability. With `gamma=1`, the time feature is simply negative trajectory duration. A fixed-duration dataset cannot identify a time preference from variation in that feature alone.
+Loading validates array shapes, finite values, action limits, terminal flags, timestamps, feature order, and reward reconstruction. It never loads pickle objects. `transitions` returns views into the loaded arrays. `feature_sum` aggregates `[progress_delta, -dt, -offroad_dt, -squared_action_change, -impact_mps, -recovery]`; this supports linear reward/cost formulations but does not implement an inverse solver or imply feature identifiability. With `gamma=1`, the time feature is simply negative trajectory duration. A fixed-duration dataset cannot identify a time preference from variation in that feature alone.
 
 `python -m racing_lab.cli validate-data --data data` checks all NPZ recordings in a directory. Keep model NPZ files in a separate directory.
 
@@ -50,7 +50,7 @@ env.restore(snapshot)
 second = env.step([0., 0., 1.])
 ```
 
-Snapshots copy physical state, previous action, checkpoint bookkeeping, counters, reset metadata, and NumPy RNG state. Restore requires the same simulator, track hash, timeout, and reward weights. These are trusted in-memory Python structures, not a portable dataset format. The smaller `env.state()` array contains only seven physical quantities and is not sufficient to restore an episode.
+Snapshots copy all wheel/drivetrain/sprung-body state, physical state, previous action, checkpoint bookkeeping, counters, reset metadata, and NumPy RNG state. Restore requires the same simulator, track hash, timeout, reward weights, and DrivingConfig. These are trusted in-memory Python structures, not a portable dataset format. The smaller `env.state()` array contains only seven physical quantities and is not sufficient to restore an episode.
 
 ## Evaluation and comparison
 
@@ -63,7 +63,7 @@ report = evaluate_policy(my_policy, config, policy_name="my-irl-method")
 save_report(report, "results/my-irl-method.json")
 ```
 
-`my_policy(observation)` returns three controls. A `reset()` method, if present, is called at the beginning of each episode. Seed any randomness in your own model yourself; the environment seed cannot control an arbitrary callable's internals. Pass `None` as the policy to run the privileged geometric reference controller. An optional `on_episode(row)` callback receives each completed result. `reward_weights` and `render` are keyword arguments.
+`my_policy(observation)` returns three controls. A `reset()` method, if present, is called at the beginning of each episode. Seed any randomness in your own model yourself; the environment seed cannot control an arbitrary callable's internals. Pass `None` as the policy to run the privileged geometric reference controller. Pass `driving=DrivingConfig(...)` to choose vehicle aids; a saved BC policy carries its training configuration. An optional `on_episode(row)` callback receives each completed result. `reward_weights` and `render` are keyword arguments.
 
 Reports include:
 
@@ -89,4 +89,20 @@ The exported model report records selected file hashes, train/validation filenam
 
 The local-road observation is useful for transfer but is **not a complete Markov state**: previous action (used in smoothness reward), lap checkpoints, timeout counters, and distant topology are omitted. A recurrent policy or a custom observation wrapper can expose additional state. Use snapshots when you need exact simulator branching. Do not infer formal MDP guarantees from Gymnasium compatibility alone.
 
-There is no physical calibration, exact tyre-contact boundary model, continuous collision detection, or guaranteed globally optimal racing line. Road checkpoints discourage major shortcuts but do not eliminate every corner cut. Human timing follows simulation steps; rendering overload slows wall-clock play. Clearly distinguish these assumptions from properties of real-world driving when reporting results.
+There is no physical calibration or guaranteed globally optimal racing line. Barriers use a substepped rectangular-car constraint solver, not general continuous collision detection. Road checkpoints discourage major shortcuts but do not eliminate every corner cut. Ordinary frame drops preserve simulation timing; stalls over 0.5 seconds pause the interval. See [physics](physics.md) and [driving](driving.md) for the limits.
+
+## Vehicle settings and supplemental commands
+
+```python
+from racing_lab import DrivingConfig
+
+env = RacingEnv("spa_long", driving=DrivingConfig(automatic=False, traction_control=False, abs=False))
+obs, info = env.reset(seed=42, options={"start_distance":100., "speed":20.})
+transition = env.step([0., .5, 0.], commands={"shift":1})
+```
+
+`commands` optionally contains `shift` (-1/0/1), `direction` (-1/0/1), and `recover` (0/1). A forward shift applies only with manual gears; a direction change requires speed below 1.5 m/s. Requests are recorded even if a safety interlock prevents application. Omitted commands are zero. Recovery increments its counter and invalidates lap success. Unknown keys/invalid values raise before mutating state. Starting distance changes the start/finish origin; initial speed must be between -6 and 90 m/s. Keep these settings equal when comparing methods.
+
+The standard Gymnasium action space remains three continuous controls with automatic gears by default. Custom algorithms may call the supplemental API directly, or expose commands through their own Gymnasium wrapper. The bundled three-output behavior-cloning learner requires automatic forward driving with no supplemental commands and rejects mixed vehicle-aid settings.
+
+Schema 2 adds `vehicle_states`, `commands` and `contacts`. See the [array table](research-guide.md#schema-2-datasets). For reconstruction, initialize the same configuration/seed/options, then call `step(actions[t], commands=dict(zip(metadata["command_names"], commands[t])))`. Visual replay reads recorded states and does not rerun current physics. Legacy schema 1 files retain their historical field names and shapes.

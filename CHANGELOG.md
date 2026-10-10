@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 — barriers, four-wheel dynamics and practice
+
+- Simulator 0.5.0: solid road barriers, dissipative impacts, reverse and explicit recovery.
+- Eight gears, RPM/engine braking, four wheel speeds and slip, load-sensitive combined grip, reduced pitch/roll suspension and configurable TC/ABS.
+- Four additional longer circuit variants with illustrative elevation/banking shared by physics and graphics.
+- Redesigned 2D, physical wheel/body animation, shared instruments, gamepad mapping, synthesized audio and optional cockpit motion.
+- Sector timing, local clean personal bests, passive ghosts, offline speed/brake/trajectory comparison.
+- Schema 2: 39 observations, six reward features, vehicle states, commands, contacts, driving configuration; legacy replay retained. Fresh demonstrations and retraining required.
+- Expanded regression tests and updated research/API/driving documentation.
+
+
 ## 0.6.0
 
 - Separate interactive 60 Hz simulation from rendered frame rate; update replay and rendered evaluation pacing.

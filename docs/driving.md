@@ -1,68 +1,64 @@
-# Driving, rendering, and validation
+# Driving and practice
 
-Package 0.6.0 / simulator 0.4.0 addresses the steering sensitivity, slow-motion presentation, and software-graphics limitations of the previous version.
-
-## Start driving
+## Start
 
 ```powershell
-.\.venv\Scripts\python -m racing_lab.cli play --track monza --data data-v04
+.\.venv\Scripts\python -m racing_lab.cli play --track monza_long --data data-v05
 ```
 
-Double-clicking `play.bat` also works, using the default `data` folder. W/S control throttle/brake; A/D steer. C cycles chase, nose and aerial cameras. V toggles 2D. R ends a run; G/B/U labels it. Select another circuit with 1–4 while labeling. All four layouts are still available: Monza, Silverstone, Spa and Suzuka.
+Double-click `play.bat` for compact Monza with default settings. Use `--view 2d` for the redesigned top-down view. There are eight layouts; choose `monza`, `silverstone`, `spa`, `suzuka`, or append `_long` for their longer counterparts.
 
-Begin with a few low-speed laps to learn the compact circuit. Brake before sharp bends and progressively release the brake while turning. The car can still exceed tire grip; the keyboard adapter does not prevent every spin or keep you on the road.
+| Input | Action |
+| --- | --- |
+| W/S or up/down | Throttle/brake |
+| A/D or left/right | Steer |
+| X | Select reverse/forward below 1.5 m/s; throttle moves in the selected direction |
+| H | Recover to nearby centerline; invalidates the lap |
+| Q/E | Downshift/upshift with `--manual-gears` |
+| C | Cycle chase/cockpit/aerial, or follow/overview in 2D |
+| V | Switch 2D/3D |
+| M | Mute/unmute audio |
+| P | Show/hide personal-best ghost |
+| R | Stop run for labeling |
+| G/B/U while stopped | Save good/bad/unlabeled and start next run |
+| 1–4 / 5–8 while stopped | Select compact / longer circuits in the order above |
+| Escape | Save current run unlabeled and exit |
 
-## Steering adapter
+Brake before sharp bends and release the pedal progressively while turning. Tires have limited combined grip. The 2 m shoulders provide a margin before the barriers, but still count as off-track. An impact dissipates speed and can spin the car. Reverse can help you maneuver away; H is an explicit fallback and is recorded.
 
-Keyboard input ramps from center to full input over 0.65 seconds and returns from full input over 0.24 seconds. The maximum requested wheel angle is:
+## Controls and aids
 
-```text
-min(0.45 radians, atan(3.4 * 13 / max(forward_speed², 1)))
+Keyboard steering rises over 0.65 s and returns over 0.24 s. Its maximum requested wheel angle is `min(.45, atan(3.4 * limit / max(speed²,1)))`, with `limit=13 m/s²`. `--steering-limit` accepts 3–30. This is an input envelope, not guaranteed lateral acceleration or automatic racing-line control. `--raw-steering` disables the speed limit but retains the ramp. Research actions always bypass the keyboard adapter.
+
+Automatic gears, traction control and ABS default on. The HUD labels all three. `--manual-gears --no-tc --no-abs` selects a more demanding configuration with wheelspin and lockups. These are explicitly modeled aids for this game, not representations of legal/current F1 equipment. Vehicle configuration and device settings are saved separately in demonstrations and evaluation reports.
+
+```sh
+python -m racing_lab.cli controllers
+python -m racing_lab.cli play --track monza_long --gamepad 0
 ```
 
-The 13 m/s² value defines a conservative geometric input envelope, not a guarantee of actual lateral acceleration. Tire forces, aero and understeer still determine the resulting motion. The adapter reads speed and keys only; it does not follow a racing line or correct heading. `--raw-steering` disables the speed-dependent limit while retaining the input ramp.
+Default gamepad mapping: axis 0 steering, axis 5 throttle, axis 2 brake; triggers range from -1 (released) to +1 (pressed). Override with `--steer-axis`, `--throttle-axis`, `--brake-axis` after checking your device. Steering has a 0.06 deadzone and 1.7 response exponent, with no keyboard speed limiter. Buttons 4/5 shift down/up, 3 selects reverse/forward, and 6 recovers. Keyboard camera/label controls remain available. Mappings vary by OS/controller; no physical wheel, force-feedback, or controller-specific calibration is bundled.
 
-**Research policies always send direct actions to `env.step`.** Human recordings store those applied actions plus the keyboard settings in `metadata.control_settings`. Replay and imitation therefore need no keyboard emulation. A learned policy should not pass its predictions through this adapter again.
+## Feedback and practice
 
-## Timing
+RPM LEDs, gear, pedal bars, g-forces, sectors, aid settings, and a minimap appear in both views. Synthetic audio follows engine RPM/throttle, tire slip, shifts and impacts. `--volume` accepts 0–1; `--mute` starts silently. Missing audio hardware falls back to silent play. `--camera-motion` adds subtle cockpit motion; it is off by default.
 
-Interactive play accumulates elapsed wall time and executes the required number of 1/60-second steps before drawing. Rendering at 20 FPS normally runs three physics steps per frame; rendering at 60 FPS runs one. Every executed step is recorded. Physics itself uses four force-integration substeps per public step.
+The HUD times three equal-distance sectors. Clean completed personal bests are saved locally in `results/practice` (override `--practice`). Clean means no off-road steps, collision or recovery. The best lap supplies a passive ghost and progress-aligned time delta on later attempts with the same simulator/track/aid/initial-state configuration. GPU ghosts are translucent; the software fallback uses a solid cyan car; 2D uses an outline. Ghosts have no collision or physics effect. Good demonstration labels and clean personal bests are separate concepts.
 
-An individual stall longer than 0.5 seconds pauses that interval and displays a stall message, avoiding an unseen burst of input after window dragging or debugging. This exception intentionally breaks wall-time synchronization. If it happens repeatedly, use 2D or another renderer. Physics cannot maintain real time on a machine too slow to execute the required steps.
-
-Replay selects recorded states according to elapsed time and may skip presentation frames. Rendered policy evaluation also skips drawing when behind, but still computes every policy action and physics step. Headless evaluation runs as quickly as possible. Calling `env.step` yourself retains deterministic fixed-step semantics; your application controls its own wall-time pacing.
-
-## Graphics and setup
-
-Install `.[play]` or `.[all]` to include Pygame and ModernGL. The `auto` renderer attempts OpenGL 3.3 and reports a warning before using the software fallback. Explicit `--renderer gpu` requires a compatible context; `--renderer software` selects the original portable renderer. The HUD shows GPU or SOFTWARE. Both support offscreen RGB output. Headless learning needs neither graphics dependency.
-
-GPU graphics include depth testing, four-sample antialiasing, a sun shadow map, distance haze, and locally generated surface textures. The car has tapered body panels, wings, cockpit/helmet, mirrors, suspension links, rounded tires, rims and rotating spokes. Front wheels follow the actual steering angle. Rotation uses integrated traveled distance divided by a 0.36 m tire radius. It assumes rolling without slip; individual wheelspin/lockup is not simulated.
-
-The scene adds braking-distance boards before detected bends, 25 m reflector spacing, woodland and spectators. Boards refer to distance along these compact layouts; they are not official circuit brake markers or a guarantee that a particular speed is safe. Scenery remains non-collidable. Graphics are procedural and stylized, not photorealistic.
-
-The renderer uses the [ModernGL context and framebuffer API](https://moderngl.readthedocs.io/en/stable/reference/context.html). No third-party art assets or network asset downloads are required.
-
-## Verification
-
-Automated checks cover:
-
-- Exactly 600 simulation steps over ten scheduled seconds at 20, 30, 60 and 144 presentation FPS.
-- Approximately 55 m traveled in one wall-scheduled second at 200 km/h, including the 20 FPS case.
-- A 150 ms steering tap at 200 km/h, followed by release: less than 1.5 m lateral displacement over three seconds, less than one degree of heading change, and yaw settling below 0.001 rad/s.
-- Low-speed constant-radius geometry, mirrored lane-change response, sub-limit turns followed by firm braking, finite aggressive-input behavior, and axle friction-circle bounds.
-- Deterministic action replay, snapshot restoration, applied-action recording, BC training, and successful reference-driver laps through every gate on all four tracks.
-- GPU rendering, software rendering, camera switching, track rebuilding, wheel rotation, and no rendering-induced change to simulator state.
-
-Run the machine-specific presentation benchmark:
-
-```powershell
-.\.venv\Scripts\python examples/benchmark_rendering.py --renderer gpu --seconds 5
+```sh
+python -m racing_lab.cli compare data-v05/FIRST.npz data-v05/SECOND.npz --output results/comparison.html
 ```
 
-It writes `results/render-benchmark.json`. On the development Windows PC with an RTX 4060, the five-second offscreen presentation check measured approximately **18 ms median / 22 ms p95** per frame and a **0.999 simulation-to-wall-time ratio**. This is a local measurement, not a performance promise for other machines. Shader/scene warm-up is excluded; physics and presentation run together during measurement.
+Open the resulting HTML locally for speed, braking and trajectory plots; a companion JSON provides the underlying curves. Both recordings must use the same track hash. Nothing is uploaded.
 
-## Compatibility and remaining limits
+## Graphics and timing
 
-The changed tire-force combination, delivered-force load transfer, axle stiffness and brake balance require **fresh simulator 0.4.0 demonstrations and retrained models**. Existing recordings remain untouched and visually replayable. Use `data-v04` to separate new experiments; versioned `data-*` folders are git-ignored.
+Install `.[play]` or `.[all]`. `--renderer auto` attempts OpenGL 3.3 and warns before software fallback; explicit `gpu` requires a compatible context. Both renderers support RGB arrays. The GPU renderer includes depth testing, sunlight/shadows, antialiasing and procedural scenery. Wheels follow independent physical spin angles and front steering; body pitch/roll follows the reduced suspension model. Barriers and road profile use the physics geometry. Terrain is illustrative and graphics remain stylized. The software fallback uses a simpler car mesh and painter ordering; the GPU renderer provides the detailed body and depth-correct scene.
 
-These tests establish reproducibility and specific handling behaviors. They do not validate the model against an instrumented F1 car. There is still no elevation, suspension dynamics, tire temperature/wear, individual wheel-slip dynamics, damage or barrier collision response. See the [physics specification](physics.md). Your driving feedback remains useful for evaluating the subjective control and camera feel.
+Interactive play executes 60 fixed physics steps per simulated second, independently of presentation FPS. Ordinary 20 FPS rendering runs about three steps per frame. Every executed step is recorded. A stall longer than 0.5 s pauses that interval to avoid applying unseen inputs. Scene/shader initialization can take time, especially for longer terrain layouts; initialization is excluded from driving timing. Repeated stalls require a lighter renderer or 2D. No software can guarantee realtime operation below its required physics throughput.
+
+Replay may skip presentation frames while selecting recorded states by elapsed time. Rendered evaluation drops drawing when behind but computes every policy/physics step. Headless stepping has no wall-clock pacing. Run `python examples/benchmark_rendering.py --renderer gpu --seconds 5` for a machine-specific check; see [validation](validation.md).
+
+## Compatibility
+
+This update changes physics, observations, reward features and recording schema. **Collect fresh simulator 0.5.0 demonstrations and retrain models**, preferably in `data-v05`. Older files are preserved and can be visually replayed when their track hash is installed. The simple BC baseline requires automatic forward driving without supplemental commands; use a custom learner/action wrapper for manual driving or recovery research.

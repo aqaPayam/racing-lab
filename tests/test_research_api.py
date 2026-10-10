@@ -13,7 +13,8 @@ from racing_lab import (
     evaluate_policy,
     save_report,
 )
-from racing_lab.data import validate
+from racing_lab.data import validate, TELEMETRY_NAMES
+from racing_lab.env import OBS_NAMES
 from racing_lab import feature_sum
 from racing_lab.learning import train
 
@@ -47,11 +48,11 @@ def test_record_actual_action_and_validate_corruption(tmp_path):
     rec.append(action, env.step(action))
     path = rec.save(tmp_path, reason="test")
     data = load_trajectory(path)
-    assert data["telemetry"].shape == (1, 5)
+    assert data["telemetry"].shape == (1, len(TELEMETRY_NAMES))
     assert data["metadata"]["dynamics_parameters"]["mass"] == 800
     np.testing.assert_array_equal(data["actions"], [env.action])
     obs, act, nxt = transitions(data)
-    assert obs.shape == nxt.shape == (1, 20)
+    assert obs.shape == nxt.shape == (1, len(OBS_NAMES))
     assert data["metadata"]["seed"] == 4
     weights = np.array(list(env.weights.values()))
     assert feature_sum(data) @ weights == pytest.approx(data["rewards"].sum())
@@ -108,3 +109,27 @@ def test_duplicate_demonstrations_rejected(tmp_path):
 def test_invalid_evaluation_configuration(kwargs):
     with pytest.raises(ValueError):
         EvaluationConfig(**kwargs)
+
+
+def test_bc_rejects_mixed_aids_and_supplemental_commands(tmp_path):
+    from racing_lab import DrivingConfig
+    from racing_lab.learning import train
+
+    for i, config in enumerate((DrivingConfig(), DrivingConfig(traction_control=False))):
+        env = RacingEnv(driving=config)
+        env.reset(seed=i)
+        recorder = Recorder(env)
+        for _ in range(10):
+            action = [0, 0.3 + i * 0.1, 0]
+            recorder.append(action, env.step(action))
+        recorder.save(tmp_path / "mixed", "good")
+    with pytest.raises(ValueError, match="mix different"):
+        train(tmp_path / "mixed", tmp_path / "model.npz", epochs=1)
+    env = RacingEnv()
+    env.reset()
+    recorder = Recorder(env)
+    action = [0, 0, 0]
+    recorder.append(action, env.step(action, commands={"recover": True}))
+    recorder.save(tmp_path / "commands", "good")
+    with pytest.raises(ValueError, match="supplemental commands"):
+        train(tmp_path / "commands", tmp_path / "model.npz", epochs=1)

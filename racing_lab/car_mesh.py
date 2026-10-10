@@ -170,23 +170,30 @@ class CarMesh:
         self.wheel, self.wheel_colors = wheel()
 
     def mesh(self, env):
-        phase = env.distance / 0.36
-        c, s = np.cos(phase), np.sin(phase)
-        spin = np.array([[c, 0, -s], [0, 1, 0], [s, 0, c]])
-        meshes, colors = [self.body], [self.body_colors]
-        for x in (-1.6, 1.8):
+        from .terrain import pose_frame
+
+        cp, sp = np.cos(env.vehicle.pitch), np.sin(env.vehicle.pitch)
+        cr, sr = np.cos(env.vehicle.roll), np.sin(env.vehicle.roll)
+        pitch = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
+        roll = np.array([[1, 0, 0], [0, cr, sr], [0, -sr, cr]])
+        pivot = np.array([0, 0, 0.3])
+        body = ((self.body - pivot) @ (pitch @ roll)) + pivot
+        meshes, colors = [body], [self.body_colors]
+        wheel_index = 0
+        for x in (1.8, -1.6):
             steer = env.steering if x > 0 else 0
             c, s = np.cos(steer), np.sin(steer)
             turn = np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
             for side in (-1, 1):
+                phase = env.vehicle.angle[wheel_index]
+                wheel_index += 1
+                c, s = np.cos(phase), np.sin(phase)
+                spin = np.array([[c, 0, -s], [0, 1, 0], [s, 0, c]])
                 meshes.append(
                     (self.wheel.reshape(-1, 3) @ (spin @ turn)).reshape(self.wheel.shape)
                     + [x, side * 0.75, 0.37]
                 )
                 colors.append(self.wheel_colors)
-        c, s = np.cos(env.heading), np.sin(env.heading)
-        rotation = np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
+        origin, rotation = pose_frame(env)
         mesh = np.concatenate(meshes)
-        return (mesh.reshape(-1, 3) @ rotation).reshape(mesh.shape) + [*env.pos, 0], np.concatenate(
-            colors
-        )
+        return (mesh.reshape(-1, 3) @ rotation).reshape(mesh.shape) + origin, np.concatenate(colors)

@@ -9,7 +9,9 @@ TRACK_DIR = Path(__file__).parent / "tracks"
 
 
 def names():
-    return sorted(p.stem for p in TRACK_DIR.glob("*.json"))
+    return sorted(
+        (p.stem for p in TRACK_DIR.glob("*.json")), key=lambda n: (n.endswith("_long"), n)
+    )
 
 
 class Track:
@@ -21,6 +23,10 @@ class Track:
         self.version = spec["version"]
         self.digest = hashlib.sha256(raw).hexdigest()
         self.width = float(spec["width"])
+        self.shoulder = float(spec.get("shoulder", 2.0))
+        if not np.isfinite(self.shoulder) or not 0 <= self.shoulder <= 10:
+            raise ValueError("Shoulder must be between zero and ten metres")
+        self.barrier_offset = self.width / 2 + self.shoulder
         controls = np.asarray(spec["points"], dtype=float)
         if not np.isfinite(self.width) or self.width <= 2:
             raise ValueError("Track width must be finite and greater than 2 metres")
@@ -58,6 +64,28 @@ class Track:
         self.s = np.r_[0, np.cumsum(self.seglen)]
         self.length = self.s[-1]
         self.tangents = self.vec / self.seglen[:, None]
+        profile = np.asarray(spec.get("profile", [[0, 0, 0], [0.5, 0, 0]]), dtype=float)
+        if (
+            profile.ndim != 2
+            or profile.shape[1] != 3
+            or len(profile) < 2
+            or not np.isfinite(profile).all()
+            or profile[0, 0] != 0
+            or np.any(np.diff(profile[:, 0]) <= 0)
+            or profile[-1, 0] >= 1
+            or np.max(np.abs(profile[:, 2])) > 15
+        ):
+            raise ValueError("Profile requires ordered [lap_fraction, height_m, bank_degrees] rows")
+        self.profile_s = profile[:, 0] * self.length
+        self.profile_values = profile[:, 1:].copy()
+        self.profile_values[:, 1] = np.radians(self.profile_values[:, 1])
+        prev = np.roll(self.profile_s, 1)
+        prev[0] -= self.length
+        nxt = np.roll(self.profile_s, -1)
+        nxt[-1] += self.length
+        self.profile_slopes = (
+            np.roll(self.profile_values, -1, axis=0) - np.roll(self.profile_values, 1, axis=0)
+        ) / (nxt - prev)[:, None]
 
     def sample(self, distance):
         distance = np.asarray(distance) % self.length
@@ -79,3 +107,59 @@ class Track:
             float(lateral),
             float(np.arctan2(tangent[1], tangent[0])),
         )
+
+    def project_many(self, positions, hint=None):
+        """Batch projection; a hint restricts collision queries to the local road."""
+        positions = np.asarray(positions, dtype=float).reshape(-1, 2)
+        indices = np.arange(len(self.points))
+        if hint is not None:
+            delta = (self.s[:-1] - hint + self.length / 2) % self.length - self.length / 2
+            indices = indices[np.abs(delta) < 40]
+        pts, vec, length = self.points[indices], self.vec[indices], self.seglen[indices]
+        all_s, all_lateral, all_angle = [], [], []
+        for start in range(0, len(positions), 256):
+            p = positions[start : start + 256]
+            t = np.clip(np.sum((p[:, None] - pts) * vec, axis=2) / length**2, 0, 1)
+            error = p[:, None] - (pts + t[:, :, None] * vec)
+            closest = np.argmin(np.sum(error**2, axis=2), axis=1)
+            rows = np.arange(len(p))
+            idx = indices[closest]
+            tangent = self.tangents[idx]
+            e = error[rows, closest]
+            all_s.append(self.s[idx] + t[rows, closest] * self.seglen[idx])
+            all_lateral.append(tangent[:, 0] * e[:, 1] - tangent[:, 1] * e[:, 0])
+            all_angle.append(np.arctan2(tangent[:, 1], tangent[:, 0]))
+        return tuple(np.concatenate(values) for values in (all_s, all_lateral, all_angle))
+
+    def profile(self, distance):
+        """Periodic cubic Hermite height, grade (dz/ds), and bank angle."""
+        distance = np.asarray(distance) % self.length
+        i = np.searchsorted(self.profile_s, distance, side="right") - 1
+        j = (i + 1) % len(self.profile_s)
+        span = (self.profile_s[j] - self.profile_s[i]) % self.length
+        t = (distance - self.profile_s[i]) / span
+        a, b = self.profile_values[i], self.profile_values[j]
+        ma, mb = self.profile_slopes[i] * span[..., None], self.profile_slopes[j] * span[..., None]
+        values = (
+            (2 * t**3 - 3 * t**2 + 1)[..., None] * a
+            + (t**3 - 2 * t**2 + t)[..., None] * ma
+            + (-2 * t**3 + 3 * t**2)[..., None] * b
+            + (t**3 - t**2)[..., None] * mb
+        )
+        derivative = (
+            (6 * t * t - 6 * t)[..., None] * a
+            + (3 * t * t - 4 * t + 1)[..., None] * ma
+            + (-6 * t * t + 6 * t)[..., None] * b
+            + (3 * t * t - 2 * t)[..., None] * mb
+        ) / span[..., None]
+        return values[..., 0], derivative[..., 0], values[..., 1]
+
+    def surface(self, positions):
+        if not np.any(self.profile_values):
+            return np.zeros(len(positions))
+        s, lateral, _ = self.project_many(positions)
+        height, _, bank = self.profile(s)
+        # Banking blends into the surrounding terrain beyond the shoulder.
+        return height + np.clip(
+            lateral, -self.barrier_offset - 10, self.barrier_offset + 10
+        ) * np.tan(bank)

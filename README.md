@@ -25,16 +25,19 @@ For the commands below, activate your environment (`.\.venv\Scripts\Activate.ps1
 | W / up | Throttle |
 | S / down | Brake |
 | A, D / left, right | Steering |
-| C | Cycle chase / nose / aerial cameras (following / overview in 2D) |
+| C | Cycle chase / cockpit / aerial cameras (following / overview in 2D) |
 | V | Switch between 3D and 2D |
 | R | End run for labeling |
 | G / B / U | Save good / bad / unlabeled, then begin another run |
-| 1–4 between runs | Monza / Silverstone / Spa / Suzuka |
+| 1–4 / 5–8 between runs | Compact / longer Monza, Silverstone, Spa, Suzuka |
+| X / H | Reverse at low speed / recover (invalid lap) |
+| Q / E | Downshift / upshift in manual mode |
+| M / P | Mute audio / toggle ghost |
 | Esc | Save unlabeled and exit |
 
 ## Your first experiment
 
-The game now starts in **3D**. Use `--view 2d` for the original presentation. Replay and rendered evaluation also support `--view 3d` and `--view 2d`. Camera changes are visual only; they never change dynamics, observations, actions, or recording formats.
+The game now starts in **3D**. Use `--view 2d` for the redesigned top-down presentation. Replay and rendered evaluation also support `--view 3d` and `--view 2d`. Camera changes are visual only; they never change dynamics, observations, actions, or recording formats.
 
 Drive at least five varied runs and mark useful demonstrations **good**. Then:
 
@@ -80,18 +83,28 @@ Headless installation: `pip install -e .`. Add `[play]` for Pygame and ModernGL,
 
 ## What is implemented?
 
-Four hand-authored circuit-inspired layouts; 3D scenery and an open-wheel car; chase, nose and aerial cameras; an optional 2D view; live keyboard driving; fixed-step simulation; numerical observations; continuous controls; labeled NPZ recordings; replay; supervised behavior cloning; configurable reward features; versioned evaluation reports; and a Gymnasium interface.
+Eight circuit-inspired layouts; solid barriers with sliding impacts and explicit recovery; detailed 3D and redesigned 2D views; keyboard and configurable gamepad input; eight-speed automatic/manual transmission; individual wheel spin/locking; combined tire grip, aero and reduced pitch/roll load transfer; illustrative elevation/banking on longer tracks; synthetic engine/tire/impact audio; sectors, clean personal bests, passive ghosts, and offline run comparison.
 
-The driving model now includes axle tyre slip, combined braking/cornering grip, power-limited rear-wheel drive, aerodynamic downforce and drag, and longitudinal load transfer. New force telemetry is visible and recorded. **This physics upgrade requires new demonstrations and retrained models**; older recordings remain visually replayable. See the [physics specification](docs/physics.md).
+The research API stays headless and deterministic. Versioned NPZ files record numerical observations, controls, supplemental commands, vehicle states, contacts, aid settings and reward features. A supervised behavior-cloning baseline and reproducible evaluation helpers are included; IO/IRL solvers and RL trainers can use the Python/Gymnasium interface.
 
-The default 3D view now uses **GPU rendering**: depth testing, directional lighting, shadow maps, antialiasing, and procedural road/grass materials. The car has a tapered body, wings, suspension links, helmet, rounded tires, recessed rims, rotating spokes and steering front wheels. Braking boards, reflector posts, woodland and spectators provide scale cues. All assets are generated locally; no asset downloads are needed.
+**Package 0.7.0 / simulator 0.5.0 requires fresh demonstrations and retrained models.** There are now 39 observations, six reward features, and schema 2 recordings. Older recordings remain visually replayable. Keep new experiments in a directory such as `data-v05`.
 
-`--renderer auto` selects OpenGL 3.3 when available and warns before falling back to software. Use `--renderer gpu` to require GPU rendering or `--renderer software` for the portable fallback. Press V for 2D. The HUD identifies the active renderer. Install updated dependencies with `python -m pip install -e ".[all]"` when upgrading.
+```sh
+python -m racing_lab.cli play --track monza_long --data data-v05
+python -m racing_lab.cli play --track spa_long --manual-gears --no-tc --no-abs
+python -m racing_lab.cli play --track suzuka --view 2d
+python -m racing_lab.cli controllers
+python -m racing_lab.cli compare first.npz second.npz --output results/comparison.html
+```
 
-Keyboard steering now builds gradually, returns promptly, and limits wheel angle as speed rises. This is a **keyboard input aid**, not automatic racing-line following. `--raw-steering` disables the speed limit; algorithm actions are always direct. New recordings include control settings and the actual applied actions. Physics runs at a fixed 60 Hz independently of frame rate, so ordinary rendering slowdown no longer slows the race. A stall longer than 0.5 seconds pauses simulation instead of applying unseen inputs.
+Automatic gears, traction control and ABS default on for accessible driving; their configuration is labeled and recorded. Keyboard steering is smoothed and limited with speed; direct policy actions bypass keyboard shaping. See [controls and practice](docs/driving.md) for gamepad mappings and aid settings.
 
-See [driving and validation](docs/driving.md) for the handling tests, performance benchmark, controls, and limitations.
+`--renderer auto` chooses OpenGL 3.3 or warns before software fallback. Graphics/audio use locally generated assets. Headless research requires no graphics initialization. Install upgraded dependencies with `python -m pip install -e ".[all]"`.
 
-**This is a research prototype, not a calibrated F1 simulator or an established benchmark.** Circuits are compact approximations, Suzuka has no bridge, and dynamics use generic force-based open-wheel parameters. IO/IRL solvers and RL training algorithms are not bundled. The geometric reference controller is privileged and is not a learned baseline. Successful tests do not demonstrate that imitation improves on a human expert.
+![Top-down game view](docs/game.png)
+
+See the [completed improvement checklist and validation](docs/validation.md) for the scope and checks.
+
+**This is a research prototype, not a calibrated F1 simulator or established benchmark.** Layouts and elevation are approximations; Suzuka has no bridge. There is no measured tire calibration, temperature/wear, detailed suspension, damage, ERS, traffic, or weather. The privileged geometric reference controller is a test tool, not a learned baseline. Passing tests does not establish real-car fidelity or superiority to a human expert.
 
 MIT licensed. Not affiliated with Formula 1 or the named circuits.

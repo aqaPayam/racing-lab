@@ -6,7 +6,10 @@ from .env import RacingEnv, DT
 from .track import names, Track, TRACK_DIR
 from .data import Recorder, load
 from .learning import Policy, train
-from .controls import KeyboardController
+from .controls import KeyboardController, GamepadController
+from .vehicle_model import DrivingConfig
+from .practice import PracticeBook
+
 from .timing import FixedStepClock
 
 
@@ -18,11 +21,37 @@ def play(args):
         max_seconds=args.seconds,
         view=getattr(args, "view", "3d"),
         renderer=getattr(args, "renderer", "auto"),
+        driving=DrivingConfig(
+            automatic=not getattr(args, "manual_gears", False),
+            traction_control=not getattr(args, "no_tc", False),
+            abs=not getattr(args, "no_abs", False),
+        ),
     )
     env.reset(seed=args.seed)
     env.render()
     clock = pygame.time.Clock()
-    controller = KeyboardController(assisted=not getattr(args, "raw_steering", False))
+    gamepad = getattr(args, "gamepad", None)
+    controller = (
+        GamepadController(
+            gamepad,
+            getattr(args, "steer_axis", 0),
+            getattr(args, "throttle_axis", 5),
+            getattr(args, "brake_axis", 2),
+        )
+        if gamepad is not None
+        else KeyboardController(
+            assisted=not getattr(args, "raw_steering", False),
+            lateral_acceleration=getattr(args, "steering_limit", 13.0),
+        )
+    )
+    from .audio import DrivingAudio
+
+    audio = DrivingAudio(
+        enabled=not getattr(args, "mute", False), volume=getattr(args, "volume", 0.25)
+    )
+    env.viewer.camera_motion = getattr(args, "camera_motion", False)
+    env.viewer.practice = PracticeBook(env, getattr(args, "practice", "results/practice"))
+    pending_commands = {}
     recorder = Recorder(env, seed=args.seed, control_settings=controller.metadata())
     scheduler = FixedStepClock()
     paused = False
@@ -30,6 +59,7 @@ def play(args):
     pending_track = args.track
 
     def save(label, reason):
+        env.viewer.practice.consider(recorder)
         path = recorder.save(args.data, label, reason)
         if path:
             print(f"Saved {path} ({label})", flush=True)
@@ -45,13 +75,23 @@ def play(args):
                     running = False
                 if event.type != pygame.KEYDOWN:
                     continue
+                if event.key == pygame.K_h and not paused:
+                    pending_commands["recover"] = True
+                if event.key == pygame.K_x and not paused:
+                    pending_commands["direction"] = 1 if env.vehicle.gear < 0 else -1
+                if event.key in (pygame.K_q, pygame.K_e) and not paused:
+                    pending_commands["shift"] = 1 if event.key == pygame.K_e else -1
+                if event.key == pygame.K_m:
+                    audio.enabled = not audio.enabled
+                if event.key == pygame.K_p:
+                    env.viewer.show_ghost = not env.viewer.show_ghost
                 if event.key == pygame.K_c:
                     env.viewer.cycle_camera()
                 if event.key == pygame.K_v:
                     env.viewer.mode = "2d" if env.viewer.mode == "3d" else "3d"
                 if event.key == pygame.K_r and not paused:
                     paused = True
-                if paused and event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
+                if paused and pygame.K_1 <= event.key < pygame.K_1 + len(names()):
                     pending_track = names()[event.key - pygame.K_1]
                 if paused and event.key in (pygame.K_g, pygame.K_b, pygame.K_u):
                     save(
@@ -62,6 +102,10 @@ def play(args):
                     env.reset(seed=args.seed)
                     env.viewer.trail = []
                     recorder = Recorder(env, seed=args.seed, control_settings=controller.metadata())
+                    env.viewer.practice = PracticeBook(
+                        env, getattr(args, "practice", "results/practice")
+                    )
+                    pending_commands = {}
                     controller.reset()
                     scheduler.reset()
                     elapsed = 0
@@ -78,9 +122,21 @@ def play(args):
                         int(keys[pygame.K_s] or keys[pygame.K_DOWN]),
                     ]
                 )
+                if gamepad is not None:
+                    try:
+                        analog, buttons = controller.sample(env)
+                    except (pygame.error, ValueError) as exc:
+                        save("unlabeled", "controller_disconnected")
+                        raise ValueError(
+                            "Gamepad unavailable; current run saved unlabeled"
+                        ) from exc
+                    pending_commands.update(buttons)
                 for _ in range(scheduler.advance(elapsed)):
-                    action = controller.update(target, env.speed, DT)
-                    transition = env.step(action)
+                    action = (
+                        analog if gamepad is not None else controller.update(target, env.speed, DT)
+                    )
+                    transition = env.step(action, commands=pending_commands)
+                    pending_commands = {}
                     recorder.append(action, transition)
                     paused = transition[2] or transition[3]
                     if paused:
@@ -88,15 +144,21 @@ def play(args):
             else:
                 scheduler.reset()
             if paused:
-                env.viewer.note = f"Label: G good / B bad / U unlabeled | next: {pending_track} | 1 Monza 2 Silverstone 3 Spa 4 Suzuka"
+                env.viewer.note = f"G good / B bad / U unlabeled | next: {pending_track} | 1-4 compact, 5-8 GP-length"
             else:
                 env.viewer.note = (
                     "RECORDING | R label | C camera | "
-                    + ("assisted keyboard" if controller.settings.assisted else "raw steering")
+                    + (
+                        "gamepad"
+                        if gamepad is not None
+                        else ("assisted keys" if controller.settings.assisted else "raw keys")
+                    )
                     + (" | STALL: simulation paused" if scheduler.suspended else " | physics 60 Hz")
                 )
+            audio.update(env, paused)
             env.render()
     finally:
+        audio.close()
         env.close()
 
 
@@ -116,6 +178,8 @@ def replay(args):
     )
     env.reset()
     env.telemetry_available = "telemetry" in data
+    if "driving_config" in meta:
+        env.driving = DrivingConfig(**meta["driving_config"])
     env.render()
     clock = pygame.time.Clock()
     scheduler = FixedStepClock(dt=meta["dt"])
@@ -128,6 +192,19 @@ def replay(args):
         while True:
             state = data["states"][i]
             env.distance = float(distances[i])
+            if "vehicle_states" in data:
+                env.vehicle.restore_vector(data["vehicle_states"][i])
+            else:
+                from .vehicle_model import VehicleState
+
+                env.vehicle = VehicleState.rolling(float(state[3]))
+                env.vehicle.angle[:] = env.distance / 0.36
+            if i and "contacts" in data:
+                contact, env.impact, collisions, recoveries = data["contacts"][i - 1]
+                env.contact = bool(contact)
+                env.collisions = int(collisions)
+                env.recoveries = int(recoveries)
+                env.invalid_lap = env.recoveries > 0
             env.action = data["actions"][i - 1].copy() if i else np.zeros(3, np.float32)
             env.pos = state[:2].copy()
             env.heading, env.speed, env.lateral_speed, env.yaw_rate, env.steering = state[2:]
@@ -200,6 +277,39 @@ def validate_dataset(args):
         raise ValueError(f"{len(failures)} invalid recordings")
 
 
+def list_controllers(args):
+    import pygame
+
+    pygame.init()
+    try:
+        devices = []
+        for i in range(pygame.joystick.get_count()):
+            device = pygame.joystick.Joystick(i)
+            device.init()
+            devices.append(
+                {
+                    "index": i,
+                    "name": device.get_name(),
+                    "axes": device.get_numaxes(),
+                    "buttons": device.get_numbuttons(),
+                }
+            )
+        print(json.dumps(devices, indent=2))
+    finally:
+        pygame.quit()
+
+
+def compare(args):
+    from .practice import compare_runs, comparison_html
+
+    report = compare_runs(args.first, args.second)
+    path = Path(args.output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(comparison_html(report), encoding="utf-8")
+    path.with_suffix(".json").write_text(json.dumps(report), encoding="utf-8")
+    print(f"Saved {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Racing Lab: drive, record, imitate, evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -210,6 +320,25 @@ def main():
         "--raw-steering",
         action="store_true",
         help="Disable speed-dependent keyboard steering limit",
+    )
+    p.add_argument("--manual-gears", action="store_true", help="Q/E down/up; automatic by default")
+    p.add_argument("--no-tc", action="store_true", help="Disable traction control")
+    p.add_argument("--no-abs", action="store_true", help="Disable anti-lock braking")
+    p.add_argument(
+        "--steering-limit",
+        type=float,
+        default=13.0,
+        help="Keyboard geometric lateral acceleration limit, 3-30 m/s²",
+    )
+    p.add_argument("--gamepad", type=int, help="Joystick index (use controllers command to list)")
+    p.add_argument("--steer-axis", type=int, default=0)
+    p.add_argument("--throttle-axis", type=int, default=5)
+    p.add_argument("--brake-axis", type=int, default=2)
+    p.add_argument("--mute", action="store_true")
+    p.add_argument("--volume", type=float, default=0.25)
+    p.add_argument("--camera-motion", action="store_true", help="Enable subtle cockpit body motion")
+    p.add_argument(
+        "--practice", default="results/practice", help="Local personal-best/ghost directory"
     )
     p.add_argument("--track", choices=names(), default="monza")
     p.add_argument("--data", default="data")
@@ -268,6 +397,13 @@ def main():
     p = commands.add_parser("validate-data", help="Check every recording before training")
     p.add_argument("--data", default="data")
     p.set_defaults(func=validate_dataset)
+    p = commands.add_parser("controllers", help="List available joystick devices and axes")
+    p.set_defaults(func=list_controllers)
+    p = commands.add_parser("compare", help="Export an offline speed/braking/trajectory comparison")
+    p.add_argument("first")
+    p.add_argument("second")
+    p.add_argument("--output", default="results/comparison.html")
+    p.set_defaults(func=compare)
     args = parser.parse_args()
     try:
         args.func(args)

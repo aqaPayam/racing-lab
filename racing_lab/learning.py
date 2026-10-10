@@ -35,6 +35,10 @@ def train(directory, output, seed=0, epochs=100, *, tracks=None, completed_only=
                 )
             if run["metadata"]["observation_names"] != OBS_NAMES:
                 raise ValueError(f"Incompatible observations: {path}")
+            if not run["metadata"]["driving_config"]["automatic"] or np.any(run["commands"]):
+                raise ValueError(
+                    f"{path}: the three-output BC baseline requires automatic forward driving without supplemental commands"
+                )
             # Copies of one run must not appear on opposite sides of a train/validation split.
             import hashlib
 
@@ -47,6 +51,11 @@ def train(directory, output, seed=0, epochs=100, *, tracks=None, completed_only=
             runs.append((path, run))
     if len(runs) < 2:
         raise ValueError("Record at least two human runs labeled good (five or more recommended).")
+    driving_config = runs[0][1]["metadata"]["driving_config"]
+    if any(run["metadata"]["driving_config"] != driving_config for _, run in runs):
+        raise ValueError(
+            "Do not mix different vehicle aid/gearbox configurations in one BC experiment"
+        )
     order = np.random.default_rng(seed).permutation(len(runs))
     n_val = max(1, round(len(runs) * 0.2))
     val_ids, train_ids = order[:n_val], order[n_val:]
@@ -72,6 +81,7 @@ def train(directory, output, seed=0, epochs=100, *, tracks=None, completed_only=
     prediction = np.clip(model.predict(scaler.transform(vx)), [-1, 0, 0], [1, 1, 1])
     report = {
         "simulator_version": SIMULATOR_VERSION,
+        "driving_config": driving_config,
         "seed": seed,
         "validation_action_mse": float(np.mean((prediction - vy) ** 2)),
         "runtime": runtime_versions(),
@@ -107,6 +117,7 @@ class Policy:
     def __init__(self, path):
         with np.load(path, allow_pickle=False) as z:
             metadata = json.loads(str(z["metadata"]))
+            self.driving_config = metadata.get("driving_config", {})
             if metadata.get("simulator_version") != SIMULATOR_VERSION:
                 raise ValueError(
                     "Model uses an older simulator; retrain on current-version demonstrations"
@@ -152,7 +163,14 @@ def reference_driver(env):
     target = env.track.sample(s + look) - env.pos
     alpha = np.arctan2(target[1], target[0]) - env.heading
     steer = np.arctan2(2 * WHEELBASE * np.sin(alpha), look) / 0.45
-    target_speed = 14.0
+    if env.track.length > 4000:
+        preview = env.track.sample(s + np.arange(0, 161, 20))
+        directions = np.diff(preview, axis=0)
+        angles = np.unwrap(np.arctan2(directions[:, 1], directions[:, 0]))
+        curvature = max(0.002, float(np.max(np.abs(np.diff(angles)))) / 20)
+        target_speed = min(32.0, np.sqrt(6.0 / curvature))
+    else:
+        target_speed = 14.0
     return np.array(
         [
             np.clip(steer, -1, 1),

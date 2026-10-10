@@ -79,12 +79,22 @@ def test_gpu_renderer_and_wheel_geometry():
                 for k in ("heading", "speed", "lateral_speed", "yaw_rate", "steering")
             ],
         )
+        from types import SimpleNamespace
+
+        pose = env.state().copy()
+        pose[:2] = env.track.sample(20)
+        env.viewer.practice = SimpleNamespace(
+            ghost=lambda _: pose.copy(), best_time=100.0, delta=lambda *_: 0.0
+        )
+        ghost_image = env.render()
+        assert not np.array_equal(image, ghost_image)
+        np.testing.assert_array_equal(env.vehicle.vector(), before["state"]["vehicle"].vector())
         car = env.viewer.scene3d.car
         still, _ = car.mesh(env)
-        env.distance = 1
+        env.vehicle.angle[:] = 1 / 0.36
         rolling, _ = car.mesh(env)
         assert not np.array_equal(still, rolling)
-        env.distance = 2 * np.pi * 0.36
+        env.vehicle.angle[:] = 2 * np.pi
         full_turn, _ = car.mesh(env)
         np.testing.assert_allclose(still, full_turn, atol=1e-10)
     finally:

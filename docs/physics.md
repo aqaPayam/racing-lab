@@ -1,56 +1,52 @@
-# Force-based vehicle model
+# Vehicle physics
 
-Simulator **0.4.0**, introduced in package **0.6.0**, is a planar dynamic single-track model. It advances longitudinal velocity, lateral velocity and yaw rate using front/rear axle forces. Four 1/240-second force steps occur inside each 1/60-second public environment step. The numerical observation/action dimensions remain unchanged.
+Package **0.7.0**, simulator **0.5.0** uses four independent wheel speeds, planar chassis motion, and reduced-order pitch/roll dynamics. Four 1/240-second integration substeps run inside every 1/60-second Gymnasium step. Rendering, camera effects, and sound never advance physics.
 
-## What changed
+## Tires, drivetrain, and suspension
 
-Front/rear tire slip angles come from axle velocities and steering. Pure lateral demand is `Fy = mu * Fz * tanh(C_alpha * slip_angle / (mu * Fz))`. Longitudinal requests are bounded by axle capacity. When `hypot(Fx, Fy) > mu * Fz`, both components are scaled by the same factor to stay within the friction circle. This replaces the previous longitudinal-priority rule, which could erase all rear cornering force at full throttle.
+Wheel contact velocities include body longitudinal/lateral motion and yaw. Front contacts rotate with steering. Lateral demand is a smooth saturating function of slip angle; longitudinal force comes from compliant slip between each wheel's angular speed and contact velocity. A semi-implicit update avoids numerical instability from stiff longitudinal tire forces near standstill. Each tire shares one combined force budget: if `hypot(Fx,Fy)` exceeds its load-dependent capacity, both components scale together. Braking therefore consumes cornering grip.
 
-The default front/rear cornering stiffnesses are 95/150 kN per radian, providing an understeer-biased response. Front brake allocation is 64%. Longitudinal load transfer is estimated with five fixed-point iterations using **delivered body force**, rather than assuming the pedal request can always be realized. These are inspectable generic tuning choices, not fitted real-car values.
+Each wheel has angular inertia and its own spin angle, so driven wheels can spin and braking wheels can lock. The graphics use these angles. Grip decreases on grass/shoulders and its coefficient decreases slightly with increasing normal load. A damped pitch mode drives front/rear load transfer; a damped roll mode drives left/right transfer. These modes animate the body and change tire loads, but do not implement four independent suspension travel systems, chassis heave, or wheel hop.
 
-Drive force is limited by both a low-speed force ceiling and power divided by speed. Braking is divided between axles. Normal loads include static weight, speed-squared downforce, and a quasi-static longitudinal transfer estimate. Drag grows with squared speed; asphalt and grass use different friction/rolling resistance. Axle force moments accelerate yaw rather than setting yaw rate directly. Between 2 and 6 m/s, a smooth transition to low-speed kinematics avoids the slip-angle singularity; the vehicle cannot reverse.
+The rear-wheel drivetrain has eight forward ratios, reverse, an RPM-dependent torque curve capped at 500 kW, a simplified launch clutch, engine braking, and a short torque interruption on shifts. Automatic shifting is the default; manual shifts reject over-revving downshifts. Reverse is limited to low speed. Optional traction control reduces drive torque with excess rear slip; optional ABS reduces brake torque with excessive braking slip. Both are **game/research aids**, not claims about real F1 equipment. They default on for accessible driving and are explicitly labeled and recorded. Use `DrivingConfig(automatic=False, traction_control=False, abs=False)` or the CLI flags to disable them.
 
-## Inspectable parameters
+Aerodynamic drag and downforce grow with speed squared. Height grade and banking affect gravity and normal loading. Rendering uses the same profile. The model remains constrained to the road surface: it cannot jump or roll over. Below 5 m/s a smooth blend to geometric steering avoids the slip-angle singularity.
 
-All constants are in `racing_lab/dynamics.py`, in the immutable `VehicleParameters` dataclass:
+## Scale and parameters
+
+The car is **5.5 m long, 1.9 m wide, with a 3.4 m wheelbase**. Tracks are 14 or 16 m wide, with a separate 2 m shoulder on each side before the barrier. These lengths are shared between views and physics; the HUD converts m/s to km/h.
 
 | Parameter | Default |
 | --- | --- |
-| Mass | 800 kg |
-| Wheelbase | 3.4 m |
-| Yaw inertia | 1,100 kg mÂ² |
+| Mass / yaw inertia | 800 kg / 1,100 kg m² |
 | CG height | 0.30 m |
-| Maximum drive power | 500 kW |
-| Maximum drive-force request | 14.5 kN |
-| Maximum brake-force request | 32 kN |
-| Front brake fraction | 64% |
-| Front / rear cornering stiffness | 95 / 150 kN/rad |
-| Asphalt / grass friction coefficient | 1.65 / 0.48 |
-| Drag / downforce area coefficient | 1.1 / 4.2 mÂ² |
+| Wheel radius / angular inertia | 0.36 m / 1.5 kg m² |
+| Engine power ceiling | 500 kW |
+| Brake-force request / front allocation | 32 kN / 64% |
+| Front / rear lateral stiffness | 95 / 150 kN/rad per axle |
+| Longitudinal stiffness | 80 kN per unit slip per wheel |
+| Asphalt / grass nominal friction | 1.65 / 0.48 |
+| Load-sensitivity exponent | -0.08 |
+| Drag / downforce area coefficient | 1.1 / 4.2 m² |
+| Pitch / roll natural frequency | 11 / 13 rad/s |
+| Damping ratio | 0.85 |
 
-These are **generic open-wheel simulation choices**, not measured specifications of an F1 team. They are copied into new recordings and evaluation reports. If you change the model or its parameters in a fork, change `SIMULATOR_VERSION` before generating datasets; the standard environment currently uses one fixed parameter set.
+See `dynamics.py` and `vehicle_model.py` for the complete original equations and constants. Metadata captures the parameter dictionary and simulator version. Change `SIMULATOR_VERSION` if changing the model in a fork.
 
-## Verification and measured behavior
+## Barriers, impacts, and recovery
 
-Isolated full-throttle straight-line integration gives approximately **2.7 seconds from 0 to 100 km/h**, **324 km/h terminal speed**, and **21 metres to stop from 100 km/h** under full braking on asphalt. These are outputs of the model, not comparisons against instrumented real-car tests. Lap geometry, grip and brake points matter; a short game straight may not permit reaching terminal speed.
+Both road sides have solid barriers outside the shoulder. Every integration substep checks all four corners of the car against the local road corridor and resolves penetration. Normal impulses remove closing velocity; tangential friction dissipates sliding speed; off-center impacts change yaw. There is no artificial bounce or permanent damage. Collision tests cover glancing and head-on impacts up to 324 km/h. This is a substepped local constraint solver, not general continuous collision detection for arbitrary intersecting custom tracks.
 
-Regression tests include a 200 km/h short keyboard pulse, mirrored lane changes, low-speed constant-radius geometry, sub-limit cornering followed by firm braking, fixed-step timing at 20/30/60/144 rendered frames per second, and finite behavior under aggressive inputs, force-circle bounds, load-transfer direction, combined braking/cornering, downforce and grass effects, acceleration/braking envelopes, deterministic replay, and successful reference-controller laps on all four circuits. These establish implementation consistency, not physical calibration.
+Press X near standstill to select reverse/forward, then use throttle. H explicitly recovers to the nearby centerline and invalidates the lap. Recovery and direction/shift requests are saved as commands, separate from the three continuous actions. Impacts and recoveries have separate reward features and counters. Walls prevent leaving the corridor; the shoulder is still off-track, and cutting a curb can invalidate a clean personal best.
 
-`info['telemetry']` exposes longitudinal/lateral acceleration in g, downforce, front/rear slip angles, normal loads and axle forces/capacities. New NPZ recordings add a `T Ã— 5` telemetry array with names in metadata. Telemetry is diagnostic; the default policy still receives the existing 20 observations. Legacy visual replays show no force telemetry when it was not recorded.
+## Diagnostics and compatibility
 
-## Research compatibility
+`info['telemetry']` includes acceleration, downforce, slip angles, each wheel's loads/forces/capacities, RPM, gear, pitch/roll, road grade/bank, and active aid flags. Schema 2 stores named telemetry, all wheel/drivetrain state, commands, and contacts. The default observation now has 39 numerical values. See [research guide](research-guide.md).
 
-The simulator version changes from 0.3.0 to 0.4.0. Old models and old good demonstrations are rejected by the current trainer/policy loader rather than silently reused with changed dynamics. Existing files are untouched and remain visually replayable. Use a separate directory, for example `play --data data-v04`, for new recordings; keep old data for your historical experiments.
+Simulator 0.4 and earlier demonstrations remain visually replayable with matching track files, but are incompatible with current training. Collect new data (for example `data-v05`) and retrain. Tests and measured local results are listed in [validation](validation.md).
 
-## Boundaries of realism
+## Limits and references
 
-There is no measured tyre data or real-car parameter identification. Axles are lumped into a single track, so lateral left/right load transfer, individual wheel speeds, actual lockups/wheelspin, tyre temperature/wear, suspension, bumps, bank/elevation, gear shifts, damage and barrier collisions are not modeled. Longitudinal tyre clipping is an idealized traction/braking limiter. The quasi-static load-transfer estimate uses delivered longitudinal force; it is not a sprung-mass suspension model. Rendered suspension links do not add suspension dynamics. Wheel animation uses traveled distance and assumes rolling without slip; it is not a wheelspin measurement.
+This is an inspectable generic open-wheel research game, **not a calibrated F1 simulator**. There is no measured tire data, temperature/wear, tire deformation, detailed suspension geometry, ERS, active aerodynamics, damage, traffic, weather, or pit strategy. Track profiles are illustrative. Successful regression tests establish numerical behavior and reproducibility, not agreement with instrumented real-car measurements.
 
-The four compact circuits remain original approximations, including a non-crossing Suzuka adaptation. This is a more physically structured research game, not a validated F1 engineering simulator.
-
-## Background references
-
-- [MathWorks Bicycle Model](https://www.mathworks.com/help/vdynblks/ref/bicyclemodel.html): reference for the single-track vehicle-model family and longitudinal/lateral/yaw motion.
-- [Formula 1 explanation of downforce](https://www.formula1.com/en/latest/article/f1-explains-downforce-and-why-f1-cars-have-wings-with-mclaren-aero.10xj8CJPz8s7CmwfoyWmCU): background on the tradeoff between cornering downforce and straight-line drag.
-
-The implementation and numerical choices here are original; these references do not validate its parameters.
+Background on the model families: [MathWorks wheel and brake models](https://www.mathworks.com/help/vdynblks/brakes-and-wheels.html), [longitudinal wheel dynamics](https://www.mathworks.com/help/vdynblks/ref/longitudinalwheel.html), and [vehicle body forces](https://www.mathworks.com/help/sdl/ref/vehiclebody.html). These references do not validate this project's parameter choices.

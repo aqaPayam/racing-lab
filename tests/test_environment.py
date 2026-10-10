@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 from gymnasium.utils.env_checker import check_env
 from racing_lab import RacingEnv
+from racing_lab.env import OBS_NAMES
+from racing_lab.vehicle_model import VehicleState
 from racing_lab.track import names
 from racing_lab.data import Recorder, load
 from racing_lab.learning import reference_driver, train, Policy
@@ -38,6 +40,8 @@ def test_reference_completes_all_gates(track):
     assert info["success"], info
     assert info["checkpoint"] >= 40
     assert info["offtrack_fraction"] < 0.05
+    assert len(info["sector_times"]) == 3
+    assert sum(info["sector_times"]) == pytest.approx(info["lap_time"], abs=1 / 60)
 
 
 def test_timeout_is_not_success():
@@ -69,7 +73,7 @@ def test_dataset_and_training_roundtrip(tmp_path):
             rec.append(action, env.step(action))
         path = rec.save(tmp_path, "good")
         data = load(path)
-        assert data["observations"].shape == (91, 20)
+        assert data["observations"].shape == (91, len(OBS_NAMES))
         assert data["actions"].shape == (90, 3)
         assert np.array_equal(data["observations"][0], initial)
         assert np.allclose(data["states"][-1], env.state())
@@ -124,8 +128,9 @@ def test_longitudinal_speed_and_braking():
         if zero_to_100 is None and env.speed * 3.6 >= 100:
             zero_to_100 = (i + 1) / 60
     assert 2 < zero_to_100 < 3.5
-    assert 320 < env.speed * 3.6 < 328
+    assert 290 < env.speed * 3.6 < 335
     env.speed = 100 / 3.6
+    env.vehicle = VehicleState.rolling(env.speed)
     distance = 0.0
     for _ in range(120):
         env.pos = origin.copy()

@@ -81,6 +81,7 @@ def evaluate_policy(
     reward_weights=None,
     render=False,
     view="2d",
+    driving=None,
     on_episode=None,
 ):
     """Evaluate an observation-only callable; None selects the privileged reference driver.
@@ -89,6 +90,9 @@ def evaluate_policy(
     seed randomness inside arbitrary callables: initialize that in your algorithm.
     """
     from .learning import reference_driver
+    from .vehicle_model import DrivingConfig
+
+    driving = driving or DrivingConfig(**getattr(policy, "driving_config", {}))
 
     config = config or EvaluationConfig()
     rows = []
@@ -97,7 +101,11 @@ def evaluate_policy(
         import pygame
     for track in config.tracks:
         env = RacingEnv(
-            track, max_seconds=config.max_seconds, reward_weights=reward_weights, view=view
+            track,
+            max_seconds=config.max_seconds,
+            reward_weights=reward_weights,
+            view=view,
+            driving=driving,
         )
         try:
             for episode in range(config.episodes):
@@ -163,12 +171,20 @@ def evaluate_policy(
                 break
         finally:
             env.close()
-    weights = {"progress": 1.0, "time": 0.1, "offtrack": 2.0, "smoothness": 0.02}
+    weights = {
+        "progress": 1.0,
+        "time": 0.1,
+        "offtrack": 2.0,
+        "smoothness": 0.02,
+        "collision": 1.0,
+        "recovery": 20.0,
+    }
     weights.update(reward_weights or {})
     return {
         "report_version": 1,
         "policy": "reference (privileged)" if policy is None else policy_name,
         "config": asdict(config),
+        "driving_config": asdict(driving),
         "reward_weights": weights,
         "dt": DT,
         "runtime": runtime_versions(),

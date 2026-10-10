@@ -16,4 +16,7 @@ if __name__ == "__main__":
         actions.shape,
         next_observations.shape,
     )
-    print("Feature totals (progress, time, offtrack, smoothness):", feature_sum(trajectory))
+    print("Feature names:", trajectory["metadata"]["feature_names"])
+    print("Feature totals:", feature_sum(trajectory))
+    if "commands" in trajectory:
+        print("Supplemental commands:", trajectory["commands"].shape)

@@ -59,9 +59,8 @@ class Scene3D:
 
     def build_track(self, track):
         self.faces = []
-        samples = track.sample(np.arange(0, track.length, 6.0))
-        tangent = np.roll(samples, -1, axis=0) - np.roll(samples, 1, axis=0)
-        tangent /= np.linalg.norm(tangent, axis=1)[:, None]
+        samples = track.points
+        tangent = track.tangents
         normal = np.column_stack([-tangent[:, 1], tangent[:, 0]])
         width = track.width / 2
 
@@ -86,15 +85,16 @@ class Scene3D:
             )
             strip(side * (width + 0.8), side * (width + 3.0), lambda i: (141, 150, 111), 0.005)
         # Trackside guardrails and evenly spaced posts; kept outside the runoff.
-        for i in range(0, len(samples), 4):
-            j = (i + 4) % len(samples)
+        for i in range(len(samples)):
+            j = (i + 1) % len(samples)
             for side in (-1, 1):
-                a = samples[i] + normal[i] * side * (width + 5)
-                b = samples[j] + normal[j] * side * (width + 5)
+                a = samples[i] + normal[i] * side * track.barrier_offset
+                b = samples[j] + normal[j] * side * track.barrier_offset
                 q = np.array([[*a, 0.3], [*b, 0.3], [*b, 1.1], [*a, 1.1]])
                 self.faces.append((q, (157, 170, 178)))
                 self.faces.append((q[::-1], (157, 170, 178)))
-                self.faces.extend(self.box([*a, 0.55], [0.16, 0.16, 1.1], (111, 123, 131)))
+                if i % 8 == 0:
+                    self.faces.extend(self.box([*a, 0.55], [0.16, 0.16, 1.1], (111, 123, 131)))
         # Trees are deterministic scenery, never obstacles or random simulator state.
         tree_start = len(self.faces)
         rng = np.random.default_rng(921)
@@ -180,6 +180,17 @@ class Scene3D:
                 )
         self.centers = np.array([v.mean(axis=0) for v, _ in self.faces])
         self.mesh, self.colors = self.pack(self.faces)
+        self.mesh_ground = self.mesh[:, :, 2].max(axis=1) < 0.1
+        self.mesh_layer = np.where(self.mesh_ground, 1.0, 2.0)
+        if not getattr(self, "defer_terrain", False):
+            from .terrain import warp_mesh, ground_mesh
+
+            self.mesh = warp_mesh(track, self.mesh)
+            ground = ground_mesh(track)
+            self.mesh = np.concatenate([self.mesh, ground])
+            self.colors = np.concatenate([self.colors, np.tile([81, 112, 61], (len(ground), 1))])
+            self.mesh_ground = np.r_[self.mesh_ground, np.ones(len(ground), dtype=bool)]
+            self.mesh_layer = np.r_[self.mesh_layer, np.zeros(len(ground))]
         self.mesh_centers = self.mesh.mean(axis=1)
         self.track_hash = track.digest
 
@@ -216,17 +227,18 @@ class Scene3D:
 
     def car_faces(self, env):
         faces = []
-        angle = env.heading
+        angle = 0.0
+        local_pos = np.zeros(2)
         f = np.array([np.cos(angle), np.sin(angle)])
         n = np.array([-f[1], f[0]])
 
         def part(x, y, z, size, color, steer=0):
-            # Small visual body attitude cues; no suspension state is invented.
-            pitch = np.clip(env.telemetry["longitudinal_g"] * 0.012, -0.035, 0.035)
-            roll = np.clip(env.telemetry["lateral_g"] * 0.01, -0.035, 0.035)
+            # Physical reduced-order pitch and roll.
+            pitch = env.vehicle.pitch
+            roll = env.vehicle.roll
             faces.extend(
                 self.box(
-                    [*(env.pos + f * x + n * y), z + x * pitch + y * roll],
+                    [*(local_pos + f * x + n * y), z + x * pitch + y * roll],
                     size,
                     color,
                     angle + steer,
@@ -247,12 +259,12 @@ class Scene3D:
         for side in (-1, 1):
             part(-0.02, side * 0.3, 0.96, [0.94, 0.07, 0.07], (26, 30, 36))
         # Cylindrical tyres with rim hubs and steering angle on the front axle.
-        for x in (-1.7, 1.7):
-            for y in (-0.75, 0.75):
+        for axle, x in enumerate((1.8, -1.6)):
+            for side_index, y in enumerate((-0.75, 0.75)):
                 wheel_angle = angle + (env.steering if x > 0 else 0)
                 wf = np.array([np.cos(wheel_angle), np.sin(wheel_angle)])
                 wn = np.array([-wf[1], wf[0]])
-                origin = env.pos + f * x + n * y
+                origin = local_pos + f * x + n * y
                 rings = []
                 for side in (-0.2, 0.2):
                     rings.append(
@@ -279,7 +291,9 @@ class Scene3D:
                     center = ring.mean(axis=0)
                     faces.append((center + (ring - center) * 0.5, (132, 141, 147)))
                     # Alternating bright spokes provide visible wheel rotation.
-                    for phase in np.arange(5) * 2 * np.pi / 5 + self.wheel_phase:
+                    for phase in (
+                        np.arange(5) * 2 * np.pi / 5 - env.vehicle.angle[axle * 2 + side_index]
+                    ):
                         spoke = []
                         for radius, offset in [
                             (0.035, -0.12),
@@ -295,7 +309,10 @@ class Scene3D:
                                 ]
                             )
                         faces.append((np.asarray(spoke), (207, 215, 219)))
-        return faces
+        from .terrain import pose_frame
+
+        origin, frame = pose_frame(env)
+        return [(vertices @ frame + origin, color) for vertices, color in faces]
 
     def draw(self, viewer):
         env = viewer.env
@@ -305,8 +322,10 @@ class Scene3D:
             self.build_track(env.track)
         self.wheel_phase = -env.distance / 0.36
         self.last_step = env.steps
-        f = np.array([np.cos(env.heading), np.sin(env.heading), 0.0])
-        pos = np.array([*env.pos, 0.0])
+        from .terrain import pose_frame
+
+        pos, frame = pose_frame(env)
+        f = frame[0]
         if self.camera == 0:
             eye = pos - f * (10 + env.speed * 0.025) + [0, 0, 4.2]
             target = pos + f * 15 + [0, 0, 0.3]
@@ -340,9 +359,19 @@ class Scene3D:
                 for x, y in [(-2.8, -1), (2.8, -1), (2.8, 1), (-2.8, 1)]
             ]
         )
+        shadow[:, 2] += env.track.surface(shadow[:, :2])
         dynamic = [(shadow, (34, 42, 40))]
         if self.camera != 1:
             dynamic += self.car_faces(env)
+        if viewer.show_ghost and viewer.practice:
+            pose = viewer.practice.ghost(env.steps / 60)
+            if pose is not None:
+                from .practice import ghost_environment
+
+                dynamic += [
+                    (v, (60, 180, 190))
+                    for v, _ in self.car_faces(ghost_environment(env.track, pose, env.steps / 60))
+                ]
         car_mesh, car_colors = self.pack(dynamic)
         mesh = np.concatenate([self.mesh[mask], car_mesh])
         colors = np.concatenate([self.colors[mask], car_colors])
@@ -353,10 +382,12 @@ class Scene3D:
             camera_vertices[:, 2] - camera_vertices[:, 0],
         )
         front = (normals * camera_vertices[:, 0]).sum(axis=1) < 0
-        keep = (z.max(axis=1) >= 0.35) & (front | (mesh[:, :, 2].max(axis=1) < 0.1))
+        ground_flags = np.r_[self.mesh_ground[mask], np.zeros(len(car_mesh), dtype=bool)]
+        dynamic_flags = np.r_[np.zeros(mask.sum(), dtype=bool), np.ones(len(car_mesh), dtype=bool)]
+        keep = (z.max(axis=1) >= 0.35) & (front | ground_flags | dynamic_flags)
         camera_vertices = camera_vertices[keep]
         colors = colors[keep]
-        ground = mesh[keep, :, 2].max(axis=1) < 0.1
+        layers = np.r_[self.mesh_layer[mask], [1.5, 1.5], np.full(len(car_mesh) - 2, 2.0)][keep]
         z = camera_vertices[:, :, 2]
         depth = z.mean(axis=1)
         fog = np.clip((depth - 90) / 240, 0, 0.72)[:, None]
@@ -374,7 +405,7 @@ class Scene3D:
         # Flat road decals render before above-ground objects; large grass polygons
         # must never paint over the road just because their centroids are nearer.
         minimum_z = z.min(axis=1)
-        order = np.argsort(-depth + (~ground) * 10000)
+        order = np.lexsort((-depth, layers))
         for i in order:
             if not visible[i]:
                 continue
@@ -393,90 +424,8 @@ class Scene3D:
         self.hud(viewer)
 
     def hud(self, viewer):
-        env, screen = viewer.env, viewer.screen
-        info = env.info()
+        from .hud import draw
 
-        def panel(rect):
-            surf = pygame.Surface(rect[2:], pygame.SRCALPHA)
-            surf.fill((12, 22, 30, 215))
-            screen.blit(surf, rect[:2])
-
-        panel((22, 20, 1156, 77))
-        screen.blit(viewer.title.render("RACING LAB", True, (238, 242, 241)), (40, 30))
-        screen.blit(viewer.font.render(env.track.name, True, (137, 219, 194)), (295, 35))
-        camera = ("CHASE", "NOSE", "AERIAL")[self.camera]
-        screen.blit(
-            viewer.font.render(
-                f"3D / {camera} / {viewer.renderer_status}    C camera    V 2D",
-                True,
-                (225, 233, 231),
-            ),
-            (40, 70),
+        draw(
+            viewer, f"3D / {('CHASE', 'COCKPIT', 'AERIAL')[self.camera]} / {viewer.renderer_status}"
         )
-        screen.blit(
-            viewer.font.render(
-                f"TIME {info['elapsed']:6.2f}   LAP {max(0, info['progress']) * 100:5.1f}%",
-                True,
-                (238, 242, 241),
-            ),
-            (755, 39),
-        )
-        panel((22, 725, 280, 120))
-        screen.blit(
-            viewer.title.render(f"{env.speed * 3.6:3.0f} km/h", True, (247, 249, 242)), (40, 738)
-        )
-        for i, (name, value, color) in enumerate(
-            zip(("THR", "BRK"), env.action[1:], ((69, 206, 155), (237, 89, 73)))
-        ):
-            y = 782 + i * 26
-            screen.blit(viewer.font.render(name, True, (211, 222, 224)), (40, y))
-            pygame.draw.rect(screen, (45, 58, 66), (90, y + 3, 180, 12))
-            pygame.draw.rect(screen, color, (90, y + 3, int(180 * value), 12))
-        # Track map is useful for approaching corners and keeps all four tracks recognizable.
-        panel((970, 620, 207, 225))
-        points = env.track.points
-        lo, hi = points.min(axis=0), points.max(axis=0)
-        scale = min(170 / (hi - lo)[0], 185 / (hi - lo)[1])
-
-        def map_point(p):
-            return (p - (lo + hi) / 2) * scale + [1073, 733]
-
-        pygame.draw.lines(
-            screen, (158, 176, 181), True, (points - (lo + hi) / 2) * scale + [1073, 733], 3
-        )
-        pygame.draw.circle(screen, (255, 196, 73), map_point(env.pos), 5)
-        if info["offtrack"]:
-            screen.blit(viewer.title.render("OFF TRACK", True, (255, 171, 88)), (490, 115))
-        panel((325, 745, 345, 100))
-        t = env.telemetry
-        if not getattr(env, "telemetry_available", True):
-            screen.blit(
-                viewer.font.render("Legacy replay: no force data", True, (217, 230, 235)),
-                (338, 783),
-            )
-            panel((22, 855, 1156, 32))
-            screen.blit(viewer.font.render(viewer.note[:105], True, (247, 220, 148)), (32, 861))
-            return
-        screen.blit(
-            viewer.font.render(
-                f"LONG {t['longitudinal_g']:+.2f} g   LAT {t['lateral_g']:+.2f} g",
-                True,
-                (217, 230, 235),
-            ),
-            (338, 755),
-        )
-        screen.blit(
-            viewer.font.render(
-                f"DOWNFORCE {t['downforce_n'] / 1000:.1f} kN", True, (137, 219, 194)
-            ),
-            (338, 783),
-        )
-        slip = max(abs(t["front_slip_deg"]), abs(t["rear_slip_deg"]))
-        screen.blit(
-            viewer.font.render(
-                f"TYRE SLIP {slip:.1f} deg", True, (255, 172, 90) if slip > 8 else (217, 230, 235)
-            ),
-            (338, 811),
-        )
-        panel((22, 855, 1156, 32))
-        screen.blit(viewer.font.render(viewer.note[:105], True, (247, 220, 148)), (32, 861))

@@ -5,9 +5,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 import numpy as np
-from .env import DT, OBS_NAMES
+from .env import DT, OBS_NAMES, FEATURE_NAMES
+from .vehicle_model import VEHICLE_STATE_NAMES, DrivingConfig
+from dataclasses import asdict
 from .vehicle import SIMULATOR_VERSION, CAR_LENGTH, CAR_WIDTH, WHEELBASE
 from .dynamics import parameter_dict
+
+
+TELEMETRY_NAMES = [
+    "longitudinal_g",
+    "lateral_g",
+    "downforce_n",
+    "front_slip_deg",
+    "rear_slip_deg",
+    "rpm",
+    "gear",
+    "pitch",
+    "roll",
+    "grade",
+    "bank",
+    "tc_active",
+    "abs_active",
+]
 
 
 class Recorder:
@@ -24,6 +43,8 @@ class Recorder:
         self.reset_options = dict(env.reset_options)
         self.observations = [env.observe()]
         self.states = [env.state()]
+        self.vehicle_states = [env.vehicle.vector()]
+        self.commands, self.contacts = [], []
         self.actions, self.rewards, self.features = [], [], []
         self.terminated, self.truncated = [], []
         self.telemetry = []
@@ -41,24 +62,16 @@ class Recorder:
         self.actions.append(self.env.action.copy())
         self.observations.append(obs.copy())
         self.states.append(self.env.state())
-        self.rewards.append(reward)
-        self.features.append(
-            [info["reward_features"][k] for k in ("progress", "time", "offtrack", "smoothness")]
+        self.vehicle_states.append(self.env.vehicle.vector())
+        self.commands.append(self.env.last_commands.copy())
+        self.contacts.append(
+            [self.env.contact, self.env.impact, self.env.collisions, self.env.recoveries]
         )
+        self.rewards.append(reward)
+        self.features.append([info["reward_features"][k] for k in FEATURE_NAMES])
         self.terminated.append(terminated)
         self.truncated.append(truncated)
-        self.telemetry.append(
-            [
-                info["telemetry"][k]
-                for k in (
-                    "longitudinal_g",
-                    "lateral_g",
-                    "downforce_n",
-                    "front_slip_deg",
-                    "rear_slip_deg",
-                )
-            ]
-        )
+        self.telemetry.append([info["telemetry"][k] for k in TELEMETRY_NAMES])
 
     def save(self, directory="data", label="unlabeled", reason="completed"):
         if not self.actions:
@@ -71,17 +84,15 @@ class Recorder:
         path = directory / f"{stamp}_{uuid4().hex[:8]}.npz"
         env = self.env
         meta = {
-            "schema_version": 1,
+            "schema_version": 2,
             "control_settings": self.control_settings,
             "simulator_version": SIMULATOR_VERSION,
             "dynamics_parameters": parameter_dict(),
-            "telemetry_names": [
-                "longitudinal_g",
-                "lateral_g",
-                "downforce_n",
-                "front_slip_deg",
-                "rear_slip_deg",
-            ],
+            "telemetry_names": TELEMETRY_NAMES,
+            "vehicle_state_names": VEHICLE_STATE_NAMES,
+            "command_names": ["shift", "direction", "recover"],
+            "contact_names": ["contact", "impact_mps", "collisions", "recoveries"],
+            "driving_config": asdict(env.driving),
             "track": env.track.name,
             "vehicle": {"length_m": CAR_LENGTH, "width_m": CAR_WIDTH, "wheelbase_m": WHEELBASE},
             "track_version": env.track.version,
@@ -96,7 +107,7 @@ class Recorder:
             "observation_names": OBS_NAMES,
             "state_names": ["x", "y", "heading", "speed", "lateral_speed", "yaw_rate", "steering"],
             "action_names": ["steering", "throttle", "brake"],
-            "feature_names": ["progress", "time", "offtrack", "smoothness"],
+            "feature_names": FEATURE_NAMES,
             "reward_weights": env.weights,
             "result": env.info(),
         }
@@ -111,6 +122,9 @@ class Recorder:
             truncated=np.asarray(self.truncated),
             timestamps=np.arange(len(self.states)) * DT,
             telemetry=np.asarray(self.telemetry),
+            vehicle_states=np.asarray(self.vehicle_states),
+            commands=np.asarray(self.commands),
+            contacts=np.asarray(self.contacts),
             metadata=json.dumps(meta),
         )
         return path
@@ -130,7 +144,7 @@ def load(path):
 
 def validate(data):
     meta = data["metadata"]
-    if meta["schema_version"] != 1:
+    if meta["schema_version"] not in (1, 2):
         raise ValueError("Unsupported dataset schema")
     if meta["label"] not in ("good", "bad", "unlabeled"):
         raise ValueError("Invalid label")
@@ -151,8 +165,11 @@ def validate(data):
         raise ValueError("Invalid timestep")
     n = len(data["actions"])
     if "telemetry" in data:
-        if data["telemetry"].shape != (n, 5) or not np.isfinite(data["telemetry"]).all():
-            raise ValueError("telemetry must be a finite T x 5 array")
+        if (
+            data["telemetry"].shape != (n, len(meta.get("telemetry_names", [])))
+            or not np.isfinite(data["telemetry"]).all()
+        ):
+            raise ValueError("telemetry shape must match the named fields")
     if n < 1:
         raise ValueError("Empty trajectory")
     shapes = {
@@ -160,14 +177,32 @@ def validate(data):
         "observations": (n + 1, len(meta["observation_names"])),
         "states": (n + 1, 7),
         "rewards": (n,),
-        "reward_features": (n, 4),
+        "reward_features": (n, len(meta["feature_names"])),
         "terminated": (n,),
         "truncated": (n,),
         "timestamps": (n + 1,),
     }
+    if meta["schema_version"] == 2:
+        shapes.update(
+            vehicle_states=(n + 1, len(VEHICLE_STATE_NAMES)), commands=(n, 3), contacts=(n, 4)
+        )
+        if meta["vehicle_state_names"] != VEHICLE_STATE_NAMES:
+            raise ValueError("Unsupported vehicle-state ordering")
+        DrivingConfig(**meta["driving_config"])
+        if meta["command_names"] != ["shift", "direction", "recover"]:
+            raise ValueError("Unsupported command ordering")
+        if meta["contact_names"] != ["contact", "impact_mps", "collisions", "recoveries"]:
+            raise ValueError("Unsupported contact ordering")
     for key, shape in shapes.items():
         if data[key].shape != shape or not np.isfinite(data[key]).all():
             raise ValueError(f"{key}: expected finite array of shape {shape}")
+    if meta["schema_version"] == 2:
+        if (
+            np.any(np.abs(data["commands"][:, :2]) > 1)
+            or not np.isin(data["commands"], [-1, 0, 1]).all()
+            or np.any(data["commands"][:, 2] < 0)
+        ):
+            raise ValueError("Invalid driving commands")
     if np.any(data["actions"] < np.array([-1, 0, 0])) or np.any(data["actions"] > 1):
         raise ValueError("Actions outside supported bounds")
     for key in ("terminated", "truncated"):
@@ -177,7 +212,9 @@ def validate(data):
             )
     if not np.allclose(data["timestamps"], np.arange(n + 1) * meta["dt"], atol=1e-8, rtol=1e-7):
         raise ValueError("Timestamps do not match the simulation timestep")
-    if meta["feature_names"] != ["progress", "time", "offtrack", "smoothness"]:
+    if meta["feature_names"] != (
+        FEATURE_NAMES if meta["schema_version"] == 2 else FEATURE_NAMES[:4]
+    ):
         raise ValueError("Unsupported feature ordering")
     weights = np.array([meta["reward_weights"][k] for k in meta["feature_names"]])
     if not np.isfinite(weights).all() or not np.allclose(
@@ -193,7 +230,7 @@ def transitions(trajectory):
 
 
 def feature_sum(trajectory, gamma=1.0):
-    """Discounted sum of the four reward features, useful for linear IO/IRL objectives."""
+    """Discounted feature sum in metadata ordering, useful for linear IO/IRL objectives."""
     validate(trajectory)
     if not np.isfinite(gamma) or not 0 <= gamma <= 1:
         raise ValueError("gamma must be between zero and one")

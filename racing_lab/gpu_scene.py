@@ -33,6 +33,7 @@ in vec3 n;
 in vec3 albedo;
 in vec4 shadow_pos;
 uniform vec3 eye;
+uniform float opacity;
 uniform sampler2DShadow shadow_map;
 out vec4 frag;
 uniform sampler2D surface_noise;
@@ -51,7 +52,7 @@ void main() {
             visibility+=texture(shadow_map,vec3(q.xy+vec2(x,y)/2048.0,q.z-bias))/9.0;
     }
     vec3 base = albedo;
-    if(world.z<0.10) {
+    if((abs(base.r-base.g)<.06 && abs(base.g-base.b)<.08) || base.g>base.r*1.15) {
         float detail = texture(surface_noise,world.xy*.3).r;
         float fade = 1.0-smoothstep(12.0,75.0,length(eye-world));
         base *= 0.96 + 0.08*texture(surface_noise,world.xy*.03).g + .06*(detail-.5)*fade;
@@ -62,7 +63,7 @@ void main() {
     vec3 lit=base*(.52+.58*diffuse*visibility)+vec3(spec*visibility*(paint?.45:.055));
     float fog=1.0-exp(-length(world-eye)*.0013);
     lit=mix(lit,vec3(.65,.75,.79),fog);
-    frag=vec4(lit,1);
+    frag=vec4(lit,opacity);
 }
 """
 SHADOW_VERTEX = """#version 330
@@ -121,6 +122,7 @@ def vertex_data(mesh, colors):
 class GPUScene(Scene3D):
     def __init__(self):
         super().__init__()
+        self.defer_terrain = True
         try:
             self.ctx = moderngl.create_standalone_context(require=330)
         except Exception:
@@ -145,6 +147,7 @@ class GPUScene(Scene3D):
         self.car = CarMesh()
         self.static = None
         self.dynamic = None
+        self.ghost_mesh = None
         self.renderer_name = ctx.info["GL_RENDERER"]
 
     def upload(self, mesh, colors):
@@ -169,24 +172,13 @@ class GPUScene(Scene3D):
         start, end = self.tree_face_range
         del self.faces[start:end]
         self.faces += details(track)
-        # A real ground mesh participates in depth testing and receives shadows.
-        center = track.points.mean(axis=0)
-        self.faces.append(
-            (
-                np.array(
-                    [
-                        [center[0] + x, center[1] + y, -0.03]
-                        for x, y in [(-3000, -3000), (3000, -3000), (3000, 3000), (-3000, 3000)]
-                    ]
-                ),
-                (81, 112, 61),
-            )
-        )
-        # Avoid unnecessary subdivision of the large ground quad.
-        mesh, colors = self.pack(self.faces[:-1])
-        ground, gc = self.faces[-1]
-        mesh = np.concatenate([mesh, ground[[0, 1, 2]][None], ground[[0, 2, 3]][None]])
-        colors = np.concatenate([colors, [gc, gc]])
+        from .terrain import warp_mesh, ground_mesh
+
+        mesh, colors = self.pack(self.faces)
+        mesh = warp_mesh(track, mesh)
+        ground = ground_mesh(track)
+        mesh = np.concatenate([mesh, ground])
+        colors = np.concatenate([colors, np.tile([81, 112, 61], (len(ground), 1))])
         self.release_mesh(self.static)
         self.static = self.upload(mesh, colors)
 
@@ -201,8 +193,10 @@ class GPUScene(Scene3D):
             self.dynamic = self.upload(mesh, colors)
         else:
             self.dynamic[0].write(data)
-        forward = np.array([np.cos(env.heading), np.sin(env.heading), 0.0])
-        pos = np.array([*env.pos, 0.0])
+        from .terrain import pose_frame
+
+        pos, frame = pose_frame(env)
+        forward = frame[0]
         if self.camera == 0:
             eye = pos - forward * 8.7 + [0, 0, 2.9]
             target = pos + forward * 17 + [0, 0, 0.65]
@@ -211,6 +205,8 @@ class GPUScene(Scene3D):
             eye = pos + forward * 0.65 + [0, 0, 1.12]
             target = pos + forward * 40 + [0, 0, 1.05]
             fov = 72.0
+            if viewer.camera_motion:
+                eye += frame[2] * env.vehicle.pitch * 0.3 + frame[1] * env.vehicle.roll * 0.2
         else:
             eye = pos - forward * 22 + [0, 0, 48]
             target = pos + forward * 10
@@ -238,8 +234,27 @@ class GPUScene(Scene3D):
         self.program["shadow_map"].value = 0
         self.surface_noise.use(1)
         self.program["surface_noise"].value = 1
+        self.program["opacity"].value = 1.0
         self.static[1].render()
         self.dynamic[1].render()
+        if viewer.show_ghost and viewer.practice:
+            pose = viewer.practice.ghost(env.steps / 60)
+            if pose is not None:
+                from .practice import ghost_environment
+
+                gm, gc = self.car.mesh(ghost_environment(env.track, pose, env.steps / 60))
+                gc[:] = [65, 220, 240]
+                if self.ghost_mesh is None:
+                    self.ghost_mesh = self.upload(gm, gc)
+                else:
+                    self.ghost_mesh[0].write(vertex_data(gm, gc).tobytes())
+                self.program["opacity"].value = 0.28
+                ctx.enable(moderngl.BLEND)
+                ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+                ctx.depth_mask = False
+                self.ghost_mesh[1].render()
+                ctx.depth_mask = True
+                ctx.disable(moderngl.BLEND)
         ctx.copy_framebuffer(self.resolved, self.target)
         image = pygame.image.frombuffer(
             self.resolved.read(components=4, alignment=1), (1200, 900), "RGBA"
@@ -251,6 +266,7 @@ class GPUScene(Scene3D):
     def close(self):
         self.release_mesh(self.static)
         self.release_mesh(self.dynamic)
+        self.release_mesh(self.ghost_mesh)
         for item in (
             self.target,
             self.resolved,
