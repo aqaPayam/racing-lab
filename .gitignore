@@ -1,0 +1,10 @@
+.venv/
+.tmp/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+pytest-cache-files-*/
+data/
+models/
+results/
+.tools/
