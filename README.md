@@ -102,6 +102,14 @@ The 20 float32 observations contain normalized speed, lateral speed, yaw rate, s
 
 The simulator uses a simplified bicycle model, steering slew limits, speed-dependent cornering grip, lateral slip, drag, and off-road deceleration. It is an approachable game model, **not an engineering-accurate F1 model**. Cars cannot reverse. Ordered road checkpoints discourage shortcuts; they do not constitute exact continuous boundary enforcement between gates.
 
+### Scale and speed (simulator 0.2.0)
+
+All positions and dimensions use metres, speeds use metres/second internally, and the HUD converts to km/h. The car is 5.5 m long and 1.9 m wide, with a 3.4 m wheelbase. The renderer uses these same dimensions without enlarging the car. The default following camera uses 8 pixels/metre at rest and widens toward 4 pixels/metre at speed, looking ahead along the heading so braking points stay visible. The overview adds a locator ring around the physically scaled car. Both views include a 10 m scale bar.
+
+Road widths are 14 m (Monza/Suzuka) or 16 m (Silverstone/Spa): about 7.4–8.4 car widths. These are chosen game widths, not measurements of the named real circuits. Layouts remain compact, approximately 2.2–2.6 km. Straight-line terminal speed is about 201 km/h under the drag model, even though the numerical speed cap is 306 km/h. Nominal lateral grip is 17 m/s² (about 1.73 g), so a 50 m radius bend suggests about 105 km/h under the steady-state bicycle approximation. Acceleration, braking and grip are deliberately approachable game settings, not calibrated real F1 performance.
+
+Road-edge checks include the car's width and heading-dependent length projected across the local road tangent. This is a rectangular-envelope approximation, not exact tyre contact simulation on curved boundaries. Legacy track files are retained for replay of version 0.1.0 recordings. Old recordings remain untouched; training rejects incompatible simulator versions instead of silently mixing different dynamics. Record new demonstrations for version 0.2.0 models.
+
 ## Dataset format and inverse-learning hooks
 
 Each `.npz` file loads with `numpy.load(path, allow_pickle=False)`:

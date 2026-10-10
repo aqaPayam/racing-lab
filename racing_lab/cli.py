@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import numpy as np
 from .env import RacingEnv, DT
-from .track import names, Track
+from .track import names, Track, TRACK_DIR
 from .data import Recorder, load
 from .learning import Policy, train, reference_driver
 
@@ -70,7 +70,7 @@ def replay(args):
     import pygame
     data=load(args.file)
     meta=data["metadata"]
-    track=next((n for n in names() if Track(n).digest==meta["track_sha256"]),None)
+    track=next((str(p) for p in TRACK_DIR.rglob("*.json") if Track(str(p)).digest==meta["track_sha256"]),None)
     if track is None:
         raise ValueError("Recording track hash does not match an installed layout")
     env=RacingEnv(track)

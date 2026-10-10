@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 import numpy as np
 from .env import DT, OBS_NAMES
+from .vehicle import SIMULATOR_VERSION, CAR_LENGTH, CAR_WIDTH, WHEELBASE
 
 
 class Recorder:
@@ -36,7 +37,8 @@ class Recorder:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         path = directory / f"{stamp}_{uuid4().hex[:8]}.npz"
         env = self.env
-        meta = {"schema_version": 1, "simulator_version": "0.1.0", "track": env.track.name,
+        meta = {"schema_version": 1, "simulator_version": SIMULATOR_VERSION, "track": env.track.name,
+                "vehicle": {"length_m": CAR_LENGTH, "width_m": CAR_WIDTH, "wheelbase_m": WHEELBASE},
                 "track_version": env.track.version, "track_sha256": env.track.digest,
                 "dt": DT, "seed": self.seed, "label": label, "source": self.source, "reason": reason,
                 "observation_names": OBS_NAMES, "state_names": ["x","y","heading","speed","lateral_speed","yaw_rate","steering"],

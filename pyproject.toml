@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "racing-lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "A small reproducible 2D driving laboratory for imitation learning, IO and IRL research"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "gymnasium>=1.0", "pygame-ce>=2.5", "scikit-learn>=1.4"]
@@ -19,4 +19,4 @@ racing-lab = "racing_lab.cli:main"
 include = ["racing_lab*"]
 
 [tool.setuptools.package-data]
-racing_lab = ["tracks/*.json"]
+racing_lab = ["tracks/*.json", "tracks/archive/*.json"]

@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from .data import load
 from .env import OBS_NAMES
+from .vehicle import WHEELBASE, SIMULATOR_VERSION
 
 
 def train(directory, output, seed=0, epochs=100):
@@ -13,6 +14,8 @@ def train(directory, output, seed=0, epochs=100):
     for path in sorted(Path(directory).glob("*.npz")):
         run = load(path)
         if run["metadata"]["label"] == "good" and run["metadata"]["source"] == "human":
+            if run["metadata"]["simulator_version"] != SIMULATOR_VERSION:
+                raise ValueError(f"{path}: recording uses an older simulator; keep it for replay and collect new training runs")
             if run["metadata"]["observation_names"] != OBS_NAMES:
                 raise ValueError(f"Incompatible observations: {path}")
             runs.append((path, run))
@@ -31,7 +34,7 @@ def train(directory, output, seed=0, epochs=100):
                          random_state=seed, batch_size=min(256,len(x)), learning_rate_init=.001)
     model.fit(scaler.transform(x),y)
     prediction = np.clip(model.predict(scaler.transform(vx)), [-1,0,0],[1,1,1])
-    report = {"seed":seed, "validation_action_mse":float(np.mean((prediction-vy)**2)),
+    report = {"simulator_version": SIMULATOR_VERSION, "seed":seed, "validation_action_mse":float(np.mean((prediction-vy)**2)),
               "train_runs":[runs[i][0].name for i in train_ids], "validation_runs":[runs[i][0].name for i in val_ids],
               "train_samples":len(x), "validation_samples":len(vx), "observation_names":OBS_NAMES,
               "warning":"Action prediction error is not evidence of successful autonomous driving."}
@@ -48,6 +51,8 @@ def train(directory, output, seed=0, epochs=100):
 class Policy:
     def __init__(self,path):
         with np.load(path,allow_pickle=False) as z:
+            if json.loads(str(z["metadata"])).get("simulator_version") != SIMULATOR_VERSION:
+                raise ValueError("Model uses an older simulator; retrain on current-version demonstrations")
             self.mean,self.scale = z["mean"].copy(),z["scale"].copy()
             self.weights = [(z[f"w{i}"].copy(),z[f"b{i}"].copy()) for i in range(3)]
 
@@ -66,7 +71,7 @@ def reference_driver(env):
     look = 10+env.speed*.65
     target = env.track.sample(s+look)-env.pos
     alpha = np.arctan2(target[1],target[0])-env.heading
-    steer = np.arctan2(2*3.6*np.sin(alpha),look)/.45
+    steer = np.arctan2(2*WHEELBASE*np.sin(alpha),look)/.45
     target_speed = 14.
     return np.array([np.clip(steer,-1,1),np.clip((target_speed-env.speed)*.5,0,1),
                      np.clip((env.speed-target_speed)*.3,0,1)],np.float32)

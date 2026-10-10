@@ -3,6 +3,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from .track import Track
+from .vehicle import WHEELBASE, road_envelope
 
 DT = 1 / 60
 LOOKAHEAD = np.array([10, 25, 50, 90, 150, 230], dtype=float)
@@ -60,10 +61,10 @@ class RacingEnv(gym.Env):
                          self.track.width/40, *(local/230).ravel()], dtype=np.float32)
 
     def info(self):
-        _, lateral, _ = self.track.project(self.pos)
+        _, lateral, tangent = self.track.project(self.pos)
         success = self.progress >= self.track.length and self.next_checkpoint >= 41
         return {"track": self.track.name, "elapsed": self.steps*DT, "progress": self.progress/self.track.length,
-                "offtrack": abs(lateral)>self.track.width/2, "offtrack_fraction": self.offtrack_steps/max(1,self.steps),
+                "offtrack": bool(abs(lateral)+road_envelope(self.heading-tangent)>self.track.width/2), "offtrack_fraction": self.offtrack_steps/max(1,self.steps),
                 "success": bool(success), "lap_time": self.steps*DT if success else None,
                 "smoothness": self.smoothness/max(1,self.steps), "checkpoint": self.next_checkpoint-1}
 
@@ -78,13 +79,12 @@ class RacingEnv(gym.Env):
         self.smoothness += change
         self.action = a.copy()
         self.steering += np.clip(a[0]*.45-self.steering, -1.5*DT, 1.5*DT)
-        _, lateral, _ = self.track.project(self.pos)
-        off = abs(lateral)>self.track.width/2
+        off = self.info()["offtrack"]
         accel = a[1]*12-a[2]*24-.0017*self.speed**2-.12*self.speed
         if off:
             accel -= 1.8*self.speed
         self.speed = float(np.clip(self.speed+accel*DT, 0, 85))
-        desired_yaw = self.speed/3.6*np.tan(self.steering)
+        desired_yaw = self.speed/WHEELBASE*np.tan(self.steering)
         grip = (8 if off else 17) / max(self.speed, 2)
         target_yaw = np.clip(desired_yaw, -grip, grip)
         self.yaw_rate += (target_yaw-self.yaw_rate)*min(1, DT*9)
@@ -96,7 +96,7 @@ class RacingEnv(gym.Env):
         s, lateral, _ = self.track.project(self.pos)
         delta = (s-self.last_s+self.track.length/2) % self.track.length-self.track.length/2
         self.last_s = s
-        off = abs(lateral)>self.track.width/2
+        off = self.info()["offtrack"]
         # Ignore projection jumps; require every gate in order on the road.
         valid_delta = delta if abs(delta)<max(5, self.speed*DT*3) else 0.
         self.progress += valid_delta
