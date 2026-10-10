@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 pytest-cache-files-*/
 data/
+data-*/
 models/
 results/
 .tools/

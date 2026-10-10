@@ -18,7 +18,7 @@ def test_near_plane_clips_crossing_polygon():
 
 
 def test_three_cameras_do_not_change_simulation_and_rebuild_track():
-    env = RacingEnv(render_mode="rgb_array", view="3d")
+    env = RacingEnv(render_mode="rgb_array", view="3d", renderer="software")
     control = RacingEnv()
     env.reset(seed=12)
     control.reset(seed=12)
@@ -47,3 +47,45 @@ def test_three_cameras_do_not_change_simulation_and_rebuild_track():
     env.viewer.mode = "2d"
     assert env.render().shape == (900, 1200, 3)
     env.close()
+
+
+def test_gpu_renderer_and_wheel_geometry():
+    import pytest
+    from racing_lab.gpu_scene import GPUScene
+
+    # Only context availability may skip the test, never shader/mesh failures.
+    import moderngl
+
+    try:
+        context = moderngl.create_standalone_context(require=330)
+    except Exception:
+        try:
+            context = moderngl.create_standalone_context(require=330, backend="egl")
+        except Exception as exc:
+            pytest.skip(f"No OpenGL context on this host: {exc}")
+    context.release()
+    env = RacingEnv(render_mode="rgb_array", view="3d", renderer="gpu")
+    env.reset()
+    try:
+        before = env.snapshot()
+        image = env.render()
+        assert isinstance(env.viewer.scene3d, GPUScene)
+        assert image.shape == (900, 1200, 3) and image.std() > 20
+        np.testing.assert_array_equal(
+            env.state(),
+            list(before["state"]["pos"])
+            + [
+                before["state"][k]
+                for k in ("heading", "speed", "lateral_speed", "yaw_rate", "steering")
+            ],
+        )
+        car = env.viewer.scene3d.car
+        still, _ = car.mesh(env)
+        env.distance = 1
+        rolling, _ = car.mesh(env)
+        assert not np.array_equal(still, rolling)
+        env.distance = 2 * np.pi * 0.36
+        full_turn, _ = car.mesh(env)
+        np.testing.assert_allclose(still, full_turn, atol=1e-10)
+    finally:
+        env.close()

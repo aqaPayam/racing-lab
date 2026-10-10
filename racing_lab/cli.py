@@ -6,17 +6,25 @@ from .env import RacingEnv, DT
 from .track import names, Track, TRACK_DIR
 from .data import Recorder, load
 from .learning import Policy, train
+from .controls import KeyboardController
+from .timing import FixedStepClock
 
 
 def play(args):
     import pygame
 
-    env = RacingEnv(args.track, max_seconds=args.seconds, view=getattr(args, "view", "3d"))
+    env = RacingEnv(
+        args.track,
+        max_seconds=args.seconds,
+        view=getattr(args, "view", "3d"),
+        renderer=getattr(args, "renderer", "auto"),
+    )
     env.reset(seed=args.seed)
     env.render()
     clock = pygame.time.Clock()
-    recorder = Recorder(env, seed=args.seed)
-    action = np.zeros(3, np.float32)
+    controller = KeyboardController(assisted=not getattr(args, "raw_steering", False))
+    recorder = Recorder(env, seed=args.seed, control_settings=controller.metadata())
+    scheduler = FixedStepClock()
     paused = False
     running = True
     pending_track = args.track
@@ -28,6 +36,7 @@ def play(args):
 
     try:
         while running:
+            elapsed = clock.tick(60) / 1000
             for event in pygame.event.get():
                 if event.type == pygame.QUIT or (
                     event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
@@ -52,8 +61,10 @@ def play(args):
                     env.track = Track(pending_track)
                     env.reset(seed=args.seed)
                     env.viewer.trail = []
-                    recorder = Recorder(env, seed=args.seed)
-                    action[:] = 0
+                    recorder = Recorder(env, seed=args.seed, control_settings=controller.metadata())
+                    controller.reset()
+                    scheduler.reset()
+                    elapsed = 0
                     paused = False
             if not running:
                 break
@@ -67,18 +78,24 @@ def play(args):
                         int(keys[pygame.K_s] or keys[pygame.K_DOWN]),
                     ]
                 )
-                action += np.clip(
-                    target - action, -np.array([2.8, 3, 5]) * DT, np.array([2.8, 3, 5]) * DT
-                )
-                transition = env.step(action)
-                recorder.append(action, transition)
-                paused = transition[2] or transition[3]
+                for _ in range(scheduler.advance(elapsed)):
+                    action = controller.update(target, env.speed, DT)
+                    transition = env.step(action)
+                    recorder.append(action, transition)
+                    paused = transition[2] or transition[3]
+                    if paused:
+                        break
+            else:
+                scheduler.reset()
             if paused:
                 env.viewer.note = f"Label: G good / B bad / U unlabeled | next: {pending_track} | 1 Monza 2 Silverstone 3 Spa 4 Suzuka"
             else:
-                env.viewer.note = "RECORDING | R finishes this run for labeling | C switches camera | fixed simulation: 60 Hz"
+                env.viewer.note = (
+                    "RECORDING | R label | C camera | "
+                    + ("assisted keyboard" if controller.settings.assisted else "raw steering")
+                    + (" | STALL: simulation paused" if scheduler.suspended else " | physics 60 Hz")
+                )
             env.render()
-            clock.tick(60)
     finally:
         env.close()
 
@@ -94,27 +111,39 @@ def replay(args):
     )
     if track is None:
         raise ValueError("Recording track hash does not match an installed layout")
-    env = RacingEnv(track, view=getattr(args, "view", "3d"))
+    env = RacingEnv(
+        track, view=getattr(args, "view", "3d"), renderer=getattr(args, "renderer", "auto")
+    )
     env.reset()
     env.telemetry_available = "telemetry" in data
+    env.render()
     clock = pygame.time.Clock()
+    scheduler = FixedStepClock(dt=meta["dt"])
+    i = 0
+    distances = np.r_[0, np.cumsum(np.linalg.norm(np.diff(data["states"][:, :2], axis=0), axis=1))]
+    progress = np.r_[0, np.cumsum(data["reward_features"][:, 0])]
+    offsteps = np.r_[0, np.cumsum(-data["reward_features"][:, 2] / meta["dt"])]
+    smoothness = np.r_[0, np.cumsum(-data["reward_features"][:, 3])]
     try:
-        for i, state in enumerate(data["states"]):
+        while True:
+            state = data["states"][i]
+            env.distance = float(distances[i])
+            env.action = data["actions"][i - 1].copy() if i else np.zeros(3, np.float32)
             env.pos = state[:2].copy()
             env.heading, env.speed, env.lateral_speed, env.yaw_rate, env.steering = state[2:]
             env.steps = i
             if i > 0 and "telemetry" in data:
                 env.telemetry.update(dict(zip(meta["telemetry_names"], data["telemetry"][i - 1])))
-            env.progress = float(data["reward_features"][:i, 0].sum())
-            env.offtrack_steps = int(round(-data["reward_features"][:i, 2].sum() / meta["dt"]))
+            env.progress = float(progress[i])
+            env.offtrack_steps = int(round(offsteps[i]))
             gate = env.next_checkpoint * env.track.length / 40
             if not env.info()["offtrack"] and gate <= env.progress <= gate + env.track.width:
                 env.next_checkpoint += 1
-            env.smoothness = float(-data["reward_features"][:i, 3].sum())
-            env.render()
+            env.smoothness = float(smoothness[i])
             env.viewer.note = (
                 f"REPLAY | {meta['label']} | {i + 1}/{len(data['states'])} | ESC exits"
             )
+            env.render()
             events = pygame.event.get()
             for event in events:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_c:
@@ -126,7 +155,9 @@ def replay(args):
                 for e in events
             ):
                 break
-            clock.tick(round(1 / meta["dt"]))
+            if i == len(data["states"]) - 1:
+                break
+            i = min(len(data["states"]) - 1, i + scheduler.advance(clock.tick(60) / 1000))
     finally:
         env.close()
 
@@ -174,6 +205,12 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     p = commands.add_parser("play", help="Drive and record demonstrations")
     p.add_argument("--view", choices=["2d", "3d"], default="3d")
+    p.add_argument("--renderer", choices=["auto", "gpu", "software"], default="auto")
+    p.add_argument(
+        "--raw-steering",
+        action="store_true",
+        help="Disable speed-dependent keyboard steering limit",
+    )
     p.add_argument("--track", choices=names(), default="monza")
     p.add_argument("--data", default="data")
     p.add_argument("--seconds", type=float, default=300)
@@ -181,6 +218,7 @@ def main():
     p.set_defaults(func=play)
     p = commands.add_parser("replay")
     p.add_argument("--view", choices=["2d", "3d"], default="3d")
+    p.add_argument("--renderer", choices=["auto", "gpu", "software"], default="auto")
     p.add_argument("file")
     p.set_defaults(func=replay)
     p = commands.add_parser("train")
@@ -237,7 +275,7 @@ def main():
         parser.error(
             f"Missing optional dependency {exc.name}. Install with: pip install -e '.[all]'"
         )
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         parser.error(str(exc))
 
 

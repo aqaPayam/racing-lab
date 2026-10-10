@@ -66,10 +66,11 @@ report = evaluate_policy(
 print(report["summary"])
 ```
 
-Headless installation: `pip install -e .`. Add `[play]` for Pygame, `[train]` for scikit-learn, or `[all]` for both. Importing the research API does not initialize a game window or load either optional framework.
+Headless installation: `pip install -e .`. Add `[play]` for Pygame and ModernGL, `[train]` for scikit-learn, or `[all]` for both. Importing the research API does not initialize a game window or load either optional framework.
 
 ## Documentation
 
+- [Driving and validation](docs/driving.md): steering aid, real-time scheduling, GPU setup, and verification.
 - [Physics model](docs/physics.md): tyre forces, aero, load transfer, parameters, and compatibility.
 - [Research guide](docs/research-guide.md): dynamics, tracks, observations, data schema, and limitations.
 - [Python API and experiments](docs/api.md): dataset arrays, reward features, snapshots, reproducible evaluation, and held-out tracks.
@@ -83,7 +84,13 @@ Four hand-authored circuit-inspired layouts; 3D scenery and an open-wheel car; c
 
 The driving model now includes axle tyre slip, combined braking/cornering grip, power-limited rear-wheel drive, aerodynamic downforce and drag, and longitudinal load transfer. New force telemetry is visible and recorded. **This physics upgrade requires new demonstrations and retrained models**; older recordings remain visually replayable. See the [physics specification](docs/physics.md).
 
-The portable 3D renderer uses perspective meshes, simple face shading, distance fog and a ground-contact car shadow. Scenery includes curbs, guardrails, trees, a pit building and a grandstand. It needs only the existing Pygame dependency, with no external assets or GPU setup. It is intentionally stylized: there are no photorealistic materials, dynamic lighting, suspension, elevation or scenery collisions. Software depth sorting can show minor overlap artifacts; press V for the lightweight research view. Performance depends on hardware, and rendering overload slows wall-clock play rather than dropping recorded simulation steps.
+The default 3D view now uses **GPU rendering**: depth testing, directional lighting, shadow maps, antialiasing, and procedural road/grass materials. The car has a tapered body, wings, suspension links, helmet, rounded tires, recessed rims, rotating spokes and steering front wheels. Braking boards, reflector posts, woodland and spectators provide scale cues. All assets are generated locally; no asset downloads are needed.
+
+`--renderer auto` selects OpenGL 3.3 when available and warns before falling back to software. Use `--renderer gpu` to require GPU rendering or `--renderer software` for the portable fallback. Press V for 2D. The HUD identifies the active renderer. Install updated dependencies with `python -m pip install -e ".[all]"` when upgrading.
+
+Keyboard steering now builds gradually, returns promptly, and limits wheel angle as speed rises. This is a **keyboard input aid**, not automatic racing-line following. `--raw-steering` disables the speed limit; algorithm actions are always direct. New recordings include control settings and the actual applied actions. Physics runs at a fixed 60 Hz independently of frame rate, so ordinary rendering slowdown no longer slows the race. A stall longer than 0.5 seconds pauses simulation instead of applying unseen inputs.
+
+See [driving and validation](docs/driving.md) for the handling tests, performance benchmark, controls, and limitations.
 
 **This is a research prototype, not a calibrated F1 simulator or an established benchmark.** Circuits are compact approximations, Suzuka has no bridge, and dynamics use generic force-based open-wheel parameters. IO/IRL solvers and RL training algorithms are not bundled. The geometric reference controller is privileged and is not a learned baseline. Successful tests do not demonstrate that imitation improves on a human expert.
 

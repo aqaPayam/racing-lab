@@ -16,7 +16,7 @@ env.close()
 
 Gymnasium registration is also available after `import racing_lab`: `gymnasium.make("RacingLab-v0", track="monza")`.
 
-Choose `RacingEnv(render_mode="human", view="3d")` for the perspective renderer or `view="2d"` for the original view. The Python API defaults to 2D for compatibility; CLI driving defaults to 3D. `evaluate_policy(..., render=True, view="3d")` displays any policy in 3D. Offscreen RGB output supports both views. Rendering and scenery have no effect on the numerical simulation. C cycles cameras and V changes presentation in the interactive CLI.
+Choose `RacingEnv(render_mode="human", view="3d")` for the perspective renderer or `view="2d"` for the original view. The Python API defaults to 2D for compatibility; CLI driving defaults to 3D. `evaluate_policy(..., render=True, view="3d")` displays any policy in 3D. Offscreen RGB output supports both views. Rendering and scenery have no effect on the numerical simulation. C cycles cameras and V changes presentation in the interactive CLI. The optional `renderer` argument accepts `auto` (default), `gpu`, or `software`. Explicit `gpu` raises an error when unavailable; `auto` warns and falls back. Headless `step()` never initializes a renderer.
 
 ## Demonstrations and IO/IRL features
 
@@ -35,7 +35,7 @@ observations, actions, next_observations = transitions(trajectory)
 phi = feature_sum(trajectory, gamma=.99)
 ```
 
-Create a recorder immediately after reset and append once after each step. It captures the action actually applied by the simulator, including clipping, and retains the reset seed/options. Use an honest `source`; the built-in supervised trainer selects `source=human`, `label=good` only. Imperfect or interrupted demonstrations are allowed and their completion status remains separate from their quality label.
+Create a recorder immediately after reset and append once after each step. The optional `control_settings` dictionary is copied into recording metadata; CLI driving fills it automatically. It captures the action actually applied by the simulator, including clipping, and retains the reset seed/options. Use an honest `source`; the built-in supervised trainer selects `source=human`, `label=good` only. Imperfect or interrupted demonstrations are allowed and their completion status remains separate from their quality label.
 
 Loading validates array shapes, finite values, action limits, terminal flags, timestamps, feature order, and reward reconstruction. It never loads pickle objects. `transitions` returns views into the loaded arrays. `feature_sum` aggregates `[progress_delta, -dt, -offroad_dt, -squared_action_change]`; this supports linear reward/cost formulations but does not implement an inverse solver or imply feature identifiability. With `gamma=1`, the time feature is simply negative trajectory duration. A fixed-duration dataset cannot identify a time preference from variation in that feature alone.
 

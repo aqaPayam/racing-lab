@@ -96,6 +96,7 @@ class Scene3D:
                 self.faces.append((q[::-1], (157, 170, 178)))
                 self.faces.extend(self.box([*a, 0.55], [0.16, 0.16, 1.1], (111, 123, 131)))
         # Trees are deterministic scenery, never obstacles or random simulator state.
+        tree_start = len(self.faces)
         rng = np.random.default_rng(921)
         for i in range(0, len(samples), 10):
             side = 1 if i % 20 else -1
@@ -120,6 +121,7 @@ class Scene3D:
                             (36 + k * 3, 87 + k * 4, 54 + k * 2),
                         )
                     )
+        self.tree_face_range = (tree_start, len(self.faces))
         # Pit building, grandstand and start gantry aligned to the opening straight.
         p = track.sample(30)
         _, _, angle = track.project(p)
@@ -146,8 +148,8 @@ class Scene3D:
         for row in range(5):
             self.faces.extend(
                 self.box(
-                    local(5, -width - 11 - row * 1.6, 0.5 + row * 0.65),
-                    [44, 1.6, 1 + row * 1.3],
+                    local(5, -width - 11 - row * 1.6, 0.5 + row * 0.325),
+                    [44, 1.6, 1 + row * 0.65],
                     (104 + row * 13, 113 + row * 9, 126 + row * 5),
                     angle,
                 )
@@ -301,11 +303,7 @@ class Scene3D:
         w, h = screen.get_size()
         if self.track_hash != env.track.digest:
             self.build_track(env.track)
-        if env.steps < self.last_step:
-            self.wheel_phase = 0.0
-        self.wheel_phase = (
-            self.wheel_phase + env.speed * max(0, env.steps - self.last_step) / 60 / 0.36
-        ) % (2 * np.pi)
+        self.wheel_phase = -env.distance / 0.36
         self.last_step = env.steps
         f = np.array([np.cos(env.heading), np.sin(env.heading), 0.0])
         pos = np.array([*env.pos, 0.0])
@@ -408,7 +406,11 @@ class Scene3D:
         screen.blit(viewer.font.render(env.track.name, True, (137, 219, 194)), (295, 35))
         camera = ("CHASE", "NOSE", "AERIAL")[self.camera]
         screen.blit(
-            viewer.font.render(f"3D / {camera}    C camera    V 2D view", True, (225, 233, 231)),
+            viewer.font.render(
+                f"3D / {camera} / {viewer.renderer_status}    C camera    V 2D",
+                True,
+                (225, 233, 231),
+            ),
             (40, 70),
         )
         screen.blit(

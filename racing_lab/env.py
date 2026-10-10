@@ -30,11 +30,20 @@ class RacingEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
     def __init__(
-        self, track="monza", render_mode=None, max_seconds=300, reward_weights=None, view="2d"
+        self,
+        track="monza",
+        render_mode=None,
+        max_seconds=300,
+        reward_weights=None,
+        view="2d",
+        renderer="auto",
     ):
         if view not in ("2d", "3d"):
             raise ValueError("view must be 2d or 3d")
         self.view = view
+        if renderer not in ("auto", "gpu", "software"):
+            raise ValueError("renderer must be auto, gpu, or software")
+        self.renderer = renderer
         self.track = Track(track)
         self.render_mode = render_mode
         if render_mode not in (None, "human", "rgb_array"):
@@ -70,6 +79,7 @@ class RacingEnv(gym.Env):
         self.telemetry = advance(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, 0.0)[-1]
         self.steps = self.offtrack_steps = 0
         self.progress = self.last_s = self.smoothness = 0.0
+        self.distance = 0.0
         self.last_s = self.track.project(self.pos)[0]
         self.next_checkpoint = 1
         self.action = np.zeros(3, np.float32)
@@ -103,6 +113,7 @@ class RacingEnv(gym.Env):
             "reset_seed",
             "reset_options",
             "telemetry",
+            "distance",
         )
         return {
             "simulator_version": SIMULATOR_VERSION,
@@ -194,6 +205,7 @@ class RacingEnv(gym.Env):
                 DT / 4,
             )
             self.heading = wrap(self.heading + self.yaw_rate * DT / 4)
+            self.distance += float(np.hypot(self.speed, self.lateral_speed)) * DT / 4
             forward = np.array([np.cos(self.heading), np.sin(self.heading)])
             self.pos += (
                 DT

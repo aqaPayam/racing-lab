@@ -11,12 +11,15 @@ from .dynamics import parameter_dict
 
 
 class Recorder:
-    def __init__(self, env, source="human", seed=None):
+    def __init__(self, env, source="human", seed=None, control_settings=None):
         if env.steps != 0:
             raise ValueError("Create Recorder immediately after reset(), before stepping")
         if seed is not None and seed != env.reset_seed:
             raise ValueError("Recorder seed must match the environment reset seed")
         self.env = env
+        from copy import deepcopy
+
+        self.control_settings = deepcopy(control_settings or {"device": "direct_actions"})
         self.track_digest = env.track.digest
         self.reset_options = dict(env.reset_options)
         self.observations = [env.observe()]
@@ -69,6 +72,7 @@ class Recorder:
         env = self.env
         meta = {
             "schema_version": 1,
+            "control_settings": self.control_settings,
             "simulator_version": SIMULATOR_VERSION,
             "dynamics_parameters": parameter_dict(),
             "telemetry_names": [

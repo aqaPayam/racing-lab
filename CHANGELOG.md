@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+- Separate interactive 60 Hz simulation from rendered frame rate; update replay and rendered evaluation pacing.
+- Add gradual, speed-dependent keyboard steering with recorded input settings and an explicit raw-steering option. Policy actions remain direct.
+- Correct combined tire-force saturation and estimate weight transfer from delivered force. Tune front/rear stiffness and brake balance, smooth low-speed transitions, and remove stationary cornering forces. Simulator compatibility is now **0.4.0**; collect fresh training demonstrations.
+- Add optional ModernGL rendering with depth testing, sun shadows, antialiasing and procedural materials. Preserve software 3D and 2D fallbacks.
+- Rebuild the car with rounded tires, rims, correctly rotating spokes, steering, wings, cockpit and suspension links. Add braking boards, reflectors, woodland and spectators.
+- Add regression tests for steering pulses, lane-change symmetry, corner braking, real-time speed, timing across frame rates, and GPU rendering; include a reproducible rendering benchmark.
+
+
 ## 0.5.0 — Force-based driving (simulator 0.3.0)
 
 - Replaced the arcade yaw/grip rule with a planar dynamic bicycle model: front/rear tyre slip, shared longitudinal/lateral friction circles, yaw inertia, rear-wheel traction, brake balance, quasi-static longitudinal load transfer, aerodynamic downforce and drag, and reduced grass grip.

@@ -12,11 +12,11 @@ The 20 float32 observations contain normalized speed, lateral speed, yaw rate, s
 
 The simulator uses a force-based dynamic bicycle model with axle slip, friction circles, aero, and longitudinal load transfer. See the [physics specification](physics.md) for equations, parameters, measured simulation behavior, and limitations.
 
-### Scale and compatibility (simulator 0.3.0)
+### Scale and compatibility (simulator 0.4.0)
 
-The car remains 5.5 m long and 1.9 m wide, with a 3.4 m wheelbase. Roads are 14 m (Monza/Suzuka) or 16 m (Silverstone/Spa), and circuits are compact 2.2–2.6 km approximations. The 3D view uses metres throughout; the optional 2D view includes a 10 m scale bar. Straight-line terminal speed is now approximately 324 km/h, governed by drive power and aerodynamic drag.
+The car remains 5.5 m long and 1.9 m wide, with a 3.4 m wheelbase. Roads are 14 m (Monza/Suzuka) or 16 m (Silverstone/Spa), and circuits are compact 2.2â€“2.6 km approximations. The 3D view uses metres throughout; the optional 2D view includes a 10 m scale bar. Straight-line terminal speed is now approximately 324 km/h, governed by drive power and aerodynamic drag.
 
-Road-edge checks use the rectangular car envelope projected across the local tangent. The vehicle cannot reverse, and ordered checkpoints discourage but do not eliminate all shortcuts. Legacy track layouts are retained for visual replay. Older recordings are untouched, but models trained on simulator 0.2.0 or earlier must be retrained on new simulator 0.3.0 demonstrations.
+Road-edge checks use the rectangular car envelope projected across the local tangent. The vehicle cannot reverse, and ordered checkpoints discourage but do not eliminate all shortcuts. Legacy track layouts are retained for visual replay. Older recordings are untouched, but models trained on simulator 0.3.0 or earlier must be retrained on new simulator 0.4.0 demonstrations.
 
 ## Dataset format and inverse-learning hooks
 
@@ -30,7 +30,7 @@ Each `.npz` file loads with `numpy.load(path, allow_pickle=False)`:
 | rewards | T | Scalar reward |
 | reward_features | T Ã— 4 | Progress delta, negative dt, negative off-road dt, negative squared action change |
 | terminated / truncated | T | Gymnasium terminal and timeout flags |
-| telemetry (new recordings) | T × 5 | Longitudinal/lateral g, downforce N, front/rear slip degrees |
+| telemetry (new recordings) | T Ã— 5 | Longitudinal/lateral g, downforce N, front/rear slip degrees |
 | timestamps | T+1 | Simulation seconds |
 | metadata | scalar JSON | Label, source, track version/hash, seed, schema, names, weights, outcome, stop reason |
 
@@ -41,3 +41,10 @@ Reward is a weighted sum of the four recorded features. Defaults are `progress=1
 For track-generalization experiments, collect training data only on selected circuits and evaluate separately on held-out circuits. The ordinary training split is by run, not automatically by track. Keep the test set out of parameter tuning.
 
 For setup and controls, see the [quick start](../README.md). For evaluation, snapshots and data-loading examples, see the [Python API](api.md). For development checks, see [Contributing](../CONTRIBUTING.md).
+
+
+## Human input and presentation
+
+New human recordings contain `metadata.control_settings`: keyboard adapter version, assistance flag, steering rise/return times, and the geometric lateral-acceleration limit. The `actions` array always contains the final controls delivered to `env.step`, so action replay does not depend on reproducing keyboard events. A learned policy should output these direct controls; do not apply the keyboard adapter to its outputs a second time. Control settings describe the data-collection policy, not a change to the 20-observation environment.
+
+The renderer is optional and lazy-loaded. `RacingEnv(renderer="auto", view="3d")` uses a GPU if available; `renderer="software"` forces the fallback. Training without rendering imports neither graphics library. All renderer randomness is local and fixed; it does not consume the environment RNG. See [driving and validation](driving.md) for timing behavior.

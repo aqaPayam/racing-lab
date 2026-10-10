@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import time
 from typing import Callable
 
 import numpy as np
@@ -25,7 +26,7 @@ def runtime_versions():
         "platform": platform.platform(),
         "simulator": SIMULATOR_VERSION,
     }
-    for name in ("racing-lab", "numpy", "gymnasium", "scikit-learn", "pygame-ce"):
+    for name in ("racing-lab", "numpy", "gymnasium", "scikit-learn", "pygame-ce", "moderngl"):
         try:
             versions[name] = version(name)
         except PackageNotFoundError:
@@ -92,11 +93,8 @@ def evaluate_policy(
     config = config or EvaluationConfig()
     rows = []
     interrupted = False
-    clock = None
     if render:
         import pygame
-
-        clock = pygame.time.Clock()
     for track in config.tracks:
         env = RacingEnv(
             track, max_seconds=config.max_seconds, reward_weights=reward_weights, view=view
@@ -110,12 +108,22 @@ def evaluate_policy(
                 total = 0.0
                 if env.viewer:
                     env.viewer.trail = []
+                if render:
+                    env.render()
+                    epoch = last_frame = time.perf_counter()
                 while True:
                     action = reference_driver(env) if policy is None else policy(obs)
                     obs, reward, terminated, truncated, info = env.step(action)
                     total += reward
-                    if render:
+                    now = time.perf_counter() if render else 0
+                    if render and (
+                        env.steps * DT >= now - epoch
+                        or now - last_frame > 0.1
+                        or terminated
+                        or truncated
+                    ):
                         env.render()
+                        last_frame = time.perf_counter()
                         env.viewer.note = "AUTONOMOUS EVALUATION | ESC exits"
                         events = pygame.event.get()
                         for event in events:
@@ -130,7 +138,10 @@ def evaluate_policy(
                         ):
                             interrupted = True
                             break
-                        clock.tick(60)
+                        # Drop presentation frames when behind, never policy/physics steps.
+                        remaining = epoch + env.steps * DT - time.perf_counter()
+                        if remaining > 0:
+                            time.sleep(min(remaining, DT))
                     if terminated or truncated:
                         break
                 if interrupted:

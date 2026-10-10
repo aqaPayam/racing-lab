@@ -22,6 +22,7 @@ class Viewer:
         self.trail = []
         self.mode = env.view
         self.scene3d = None
+        self.renderer_status = "2D"
 
     def cycle_camera(self):
         if self.mode == "3d":
@@ -31,9 +32,23 @@ class Viewer:
 
     def _scene(self):
         if self.scene3d is None:
-            from .scene3d import Scene3D
+            if self.env.renderer != "software":
+                try:
+                    from .gpu_scene import GPUScene
 
-            self.scene3d = Scene3D()
+                    self.scene3d = GPUScene()
+                    self.renderer_status = "GPU"
+                except Exception as exc:
+                    if self.env.renderer == "gpu":
+                        raise RuntimeError(f"GPU renderer unavailable: {exc}") from exc
+                    import warnings
+
+                    warnings.warn(f"GPU unavailable; using software 3D: {exc}", RuntimeWarning)
+            if self.scene3d is None:
+                from .scene3d import Scene3D
+
+                self.scene3d = Scene3D()
+                self.renderer_status = "SOFTWARE"
         return self.scene3d
 
     def draw(self, rgb=False):
@@ -166,4 +181,6 @@ class Viewer:
             return np.transpose(pygame.surfarray.array3d(screen), (1, 0, 2))
 
     def close(self):
+        if self.scene3d and hasattr(self.scene3d, "close"):
+            self.scene3d.close()
         pygame.quit()
