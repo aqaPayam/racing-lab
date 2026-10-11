@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 — online SAC with three-step returns
+
+- Add an optional PyTorch SAC baseline, following pinned racing-author networks, losses and update order; fresh initialization and online-only replay.
+- Add a 25 Hz multi-lap task with incremental controls, numerical history, centerline reward, explicit episode endings and strict valid-lap metrics.
+- Add training/evaluation CLI commands, Python API, checkpoints, provenance/configuration hashes and CSV/JSON experiment logs.
+- Correct n-step truncation tails and reset isolation; document paper/code discrepancies and simulator substitutions.
+- Add offline licensed source fixtures and numerical parity/regression tests.
+- Add configurable step duration and lap target to RacingEnv; propagate them to snapshots and recording/replay. Default 60 Hz dynamics and the 39-observation base interface remain compatible with simulator 0.5.0.
+
 ## 0.7.0 — barriers, four-wheel dynamics and practice
 
 - Simulator 0.5.0: solid road barriers, dissipative impacts, reverse and explicit recovery.

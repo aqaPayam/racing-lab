@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 import numpy as np
-from .env import DT, OBS_NAMES, FEATURE_NAMES
+from .env import OBS_NAMES, FEATURE_NAMES
 from .vehicle_model import VEHICLE_STATE_NAMES, DrivingConfig
 from dataclasses import asdict
 from .vehicle import SIMULATOR_VERSION, CAR_LENGTH, CAR_WIDTH, WHEELBASE
@@ -97,7 +97,8 @@ class Recorder:
             "vehicle": {"length_m": CAR_LENGTH, "width_m": CAR_WIDTH, "wheelbase_m": WHEELBASE},
             "track_version": env.track.version,
             "track_sha256": env.track.digest,
-            "dt": DT,
+            "dt": env.dt,
+            "laps": env.laps,
             "seed": self.seed,
             "label": label,
             "source": self.source,
@@ -120,7 +121,7 @@ class Recorder:
             reward_features=np.asarray(self.features),
             terminated=np.asarray(self.terminated),
             truncated=np.asarray(self.truncated),
-            timestamps=np.arange(len(self.states)) * DT,
+            timestamps=np.arange(len(self.states)) * env.dt,
             telemetry=np.asarray(self.telemetry),
             vehicle_states=np.asarray(self.vehicle_states),
             commands=np.asarray(self.commands),

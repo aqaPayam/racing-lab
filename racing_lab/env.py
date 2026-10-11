@@ -60,6 +60,8 @@ class RacingEnv(gym.Env):
         view="2d",
         renderer="auto",
         driving=None,
+        dt=DT,
+        laps=1,
     ):
         if view not in ("2d", "3d"):
             raise ValueError("view must be 2d or 3d")
@@ -70,13 +72,18 @@ class RacingEnv(gym.Env):
         if renderer not in ("auto", "gpu", "software"):
             raise ValueError("renderer must be auto, gpu, or software")
         self.renderer = renderer
+        if not np.isfinite(dt) or not 0 < dt <= 0.1:
+            raise ValueError("dt must be finite and in (0, 0.1] seconds")
+        if isinstance(laps, bool) or not isinstance(laps, int) or laps < 1:
+            raise ValueError("laps must be a positive integer")
+        self.dt, self.laps = float(dt), laps
         self.track = Track(track)
         self.render_mode = render_mode
         if render_mode not in (None, "human", "rgb_array"):
             raise ValueError("render_mode must be None, human, or rgb_array")
         if not np.isfinite(max_seconds):
             raise ValueError("max_seconds must be finite")
-        self.max_steps = int(max_seconds / DT)
+        self.max_steps = int(max_seconds / self.dt)
         if self.max_steps < 1:
             raise ValueError("max_seconds must allow at least one simulation step")
         self.weights = {
@@ -178,6 +185,8 @@ class RacingEnv(gym.Env):
             "simulator_version": SIMULATOR_VERSION,
             "track_sha256": self.track.digest,
             "max_steps": self.max_steps,
+            "dt": self.dt,
+            "laps": self.laps,
             "reward_weights": self.weights.copy(),
             "driving": asdict(self.driving),
             "state": {k: deepcopy(getattr(self, k)) for k in fields},
@@ -190,6 +199,8 @@ class RacingEnv(gym.Env):
             snapshot["simulator_version"] != SIMULATOR_VERSION
             or snapshot["track_sha256"] != self.track.digest
             or snapshot["max_steps"] != self.max_steps
+            or snapshot.get("dt", DT) != self.dt
+            or snapshot.get("laps", 1) != self.laps
             or snapshot["reward_weights"] != self.weights
             or snapshot["driving"] != asdict(self.driving)
         ):
@@ -238,11 +249,14 @@ class RacingEnv(gym.Env):
 
     def info(self):
         _, lateral, tangent = self.track.project(self.pos)
-        finished = self.progress >= self.track.length and self.next_checkpoint >= 41
+        finished = (
+            self.progress >= self.laps * self.track.length
+            and self.next_checkpoint >= 40 * self.laps + 1
+        )
         success = finished and not self.invalid_lap
         return {
             "track": self.track.name,
-            "elapsed": self.steps * DT,
+            "elapsed": self.steps * self.dt,
             "progress": self.progress / self.track.length,
             "offtrack": bool(
                 abs(lateral) + road_envelope(self.heading - tangent) > self.track.width / 2
@@ -256,7 +270,7 @@ class RacingEnv(gym.Env):
             "barrier_contact": self.contact,
             "recoveries": self.recoveries,
             "sector_times": self.sectors.copy(),
-            "lap_time": self.steps * DT if success else None,
+            "lap_time": self.steps * self.dt if success else None,
             "smoothness": self.smoothness / max(1, self.steps),
             "checkpoint": self.next_checkpoint - 1,
             "telemetry": self.telemetry.copy(),
@@ -282,7 +296,7 @@ class RacingEnv(gym.Env):
         change = float(np.sum((a - self.action) ** 2))
         self.smoothness += change
         self.action = a.copy()
-        self.steering += np.clip(a[0] * 0.45 - self.steering, -1.5 * DT, 1.5 * DT)
+        self.steering += np.clip(a[0] * 0.45 - self.steering, -1.5 * self.dt, 1.5 * self.dt)
         self.last_commands = np.array([shift, direction, recover], dtype=np.int8)
         if recover:
             self.pos = self.track.sample(self.last_s)
@@ -299,8 +313,10 @@ class RacingEnv(gym.Env):
         touched = False
         was_contact = self.contact
         hint = self.last_s
-        # Resolve contacts after each 1/240-second integration step.
-        for _ in range(4):
+        # Preserve the default four substeps; never exceed 1/240 seconds at other rates.
+        substeps = int(np.ceil(self.dt / (DT / 4)))
+        integration_dt = self.dt / substeps
+        for _ in range(substeps):
             c, sn = np.cos(self.heading), np.sin(self.heading)
             rotation = np.array([[c, sn], [-sn, c]])
             wheel_positions = (
@@ -322,19 +338,17 @@ class RacingEnv(gym.Env):
                 float(a[1]),
                 float(a[2]),
                 offroad,
-                DT / 4,
+                integration_dt,
                 self.vehicle,
                 self.driving,
                 slope,
                 cross_slope,
             )
-            self.heading = wrap(self.heading + self.yaw_rate * DT / 4)
+            self.heading = wrap(self.heading + self.yaw_rate * integration_dt)
             forward = np.array([np.cos(self.heading), np.sin(self.heading)])
             before = self.pos.copy()
-            self.pos += (
-                DT
-                / 4
-                * (forward * self.speed + np.array([-forward[1], forward[0]]) * self.lateral_speed)
+            self.pos += integration_dt * (
+                forward * self.speed + np.array([-forward[1], forward[0]]) * self.lateral_speed
             )
             self.pos, self.speed, self.lateral_speed, self.yaw_rate, contact, impact = resolve(
                 self.track,
@@ -359,7 +373,7 @@ class RacingEnv(gym.Env):
         self.last_s = s
         off = self.info()["offtrack"]
         # Ignore projection jumps; require every gate in order on the road.
-        valid_delta = delta if abs(delta) < max(5, abs(self.speed) * DT * 3) else 0.0
+        valid_delta = delta if abs(delta) < max(5, abs(self.speed) * self.dt * 3) else 0.0
         previous_progress = self.progress
         self.progress += valid_delta
         if self.next_checkpoint >= 1:
@@ -369,7 +383,7 @@ class RacingEnv(gym.Env):
                     sector * 40 / 3
                 ):
                     fraction = (boundary - previous_progress) / max(valid_delta, 1e-10)
-                    absolute = (self.steps + fraction) * DT
+                    absolute = (self.steps + fraction) * self.dt
                     self.sectors.append(float(absolute - sum(self.sectors)))
         gate = self.next_checkpoint * self.track.length / 40
         if not off and gate <= self.progress <= gate + self.track.width:
@@ -378,8 +392,8 @@ class RacingEnv(gym.Env):
         self.offtrack_steps += int(off)
         features = {
             "progress": valid_delta,
-            "time": -DT,
-            "offtrack": -float(off) * DT,
+            "time": -self.dt,
+            "offtrack": -float(off) * self.dt,
             "smoothness": -change,
             "collision": -self.impact,
             "recovery": -float(recover),

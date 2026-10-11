@@ -16,6 +16,10 @@ env.close()
 
 Gymnasium registration is also available after `import racing_lab`: `gymnasium.make("RacingLab-v0", track="monza")`.
 
+`dt` sets the decision interval in seconds (default 1/60), and `laps` sets the required lap count (default one). Physical integration uses substeps no longer than 1/240 second. Snapshots require matching clock and lap settings; recordings retain both. Sector timing in the base environment describes the first lap. The SAC adapter maintains its own per-lap validity and timing.
+
+For online SAC, use `racing_lab.rl.SACRacingEnv`, which adds relative controls, causal history, a 25 Hz clock and the paper-style task reward. Its actions and 168 observations differ from the base environment. See the [SAC guide](sac-baseline.md) for import examples, training and frozen-policy evaluation.
+
 Choose `RacingEnv(render_mode="human", view="3d")` for the perspective renderer or `view="2d"` for the top-down view. The Python API defaults to 2D for compatibility; CLI driving defaults to 3D. `evaluate_policy(..., render=True, view="3d")` displays any policy in 3D. Offscreen RGB output supports both views. Rendering and scenery have no effect on the numerical simulation. C cycles cameras and V changes presentation in the interactive CLI. The optional `renderer` argument accepts `auto` (default), `gpu`, or `software`. Explicit `gpu` raises an error when unavailable; `auto` warns and falls back. Headless `step()` never initializes a renderer.
 
 ## Demonstrations and IO/IRL features

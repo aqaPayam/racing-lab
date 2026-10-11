@@ -3,7 +3,7 @@
 Install Python 3.10+ and run from the repository root:
 
 ```sh
-python -m pip install -e ".[all,dev]"
+python -m pip install -e ".[all,rl,dev]"
 python -m ruff format racing_lab tests examples
 python -m ruff check racing_lab tests examples
 python -m pytest -q
@@ -11,6 +11,8 @@ python -m build
 ```
 
 Tests select SDL's dummy drivers for automated rendering. The full suite drives all eight circuits and can take several minutes, depending on hardware. CI runs on Windows and Linux with Python 3.11/3.13. A configured workflow is not a claim that remote CI has already passed.
+
+The SAC tests require the optional PyTorch dependency and include numerical comparisons with pinned, licensed author-source fixtures. Do not reformat those fixtures; their hashes must remain unchanged. Training/evaluation artifacts and learned checkpoints stay outside Git.
 
 Keep numerical simulation independent of Pygame and algorithm-specific libraries. Add meaningful regression tests for changes to dynamics, recording alignment, episode outcomes, or model compatibility. Do not add tests that merely repeat implementation constants.
 

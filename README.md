@@ -71,11 +71,24 @@ print(report["summary"])
 
 Headless installation: `pip install -e .`. Add `[play]` for Pygame and ModernGL, `[train]` for scikit-learn, or `[all]` for both. Importing the research API does not initialize a game window or load either optional framework.
 
+## Online RL without demonstrations
+
+Install `pip install -e ".[rl]"`, then run the source-based SAC baseline:
+
+```sh
+python -m racing_lab.cli train-sac --track monza --steps 10000 --output results/sac-monza-seed0
+python -m racing_lab.cli evaluate-sac --model results/sac-monza-seed0/final.pt --render --view 3d
+```
+
+Training starts from random initialization and an empty replay buffer, using only its own simulator experience. The default budget is a pilot. [SAC documentation](docs/sac-baseline.md) describes preserved paper settings, game adaptations, outputs and limitations. `[rl]` is separate from `[all]` so gameplay installations do not need PyTorch.
+
 ## Documentation
 
 - [Driving and validation](docs/driving.md): steering aid, real-time scheduling, GPU setup, and verification.
 - [Physics model](docs/physics.md): tyre forces, aero, load transfer, parameters, and compatibility.
 - [Research guide](docs/research-guide.md): dynamics, tracks, observations, data schema, and limitations.
+- [Online RL paper audit](docs/online-rl-paper-audit.md): the active from-scratch benchmark shortlist, pinned sources, reproduction gaps and proposed implementation chain. [Broader literature](docs/benchmark-literature.md) and the [deferred demonstration protocol](docs/benchmark-protocol.md) retain later research proposals.
+- [SAC baseline](docs/sac-baseline.md): online training/evaluation, numerical source parity, and the paper-to-game adaptation ledger.
 - [Python API and experiments](docs/api.md): dataset arrays, reward features, snapshots, reproducible evaluation, and held-out tracks.
 - [Contributing](CONTRIBUTING.md): checks and compatibility rules.
 - [Changelog](CHANGELOG.md): changes to the package, simulator and recordings.
@@ -85,9 +98,9 @@ Headless installation: `pip install -e .`. Add `[play]` for Pygame and ModernGL,
 
 Eight circuit-inspired layouts; solid barriers with sliding impacts and explicit recovery; detailed 3D and redesigned 2D views; keyboard and configurable gamepad input; eight-speed automatic/manual transmission; individual wheel spin/locking; combined tire grip, aero and reduced pitch/roll load transfer; illustrative elevation/banking on longer tracks; synthetic engine/tire/impact audio; sectors, clean personal bests, passive ghosts, and offline run comparison.
 
-The research API stays headless and deterministic. Versioned NPZ files record numerical observations, controls, supplemental commands, vehicle states, contacts, aid settings and reward features. A supervised behavior-cloning baseline and reproducible evaluation helpers are included; IO/IRL solvers and RL trainers can use the Python/Gymnasium interface.
+The research API stays headless and deterministic. Versioned NPZ files record numerical observations, controls, supplemental commands, vehicle states, contacts, aid settings and reward features. Supervised behavior cloning, online SAC with three-step returns, and reproducible evaluation helpers are included; additional IO/IRL solvers and RL trainers can use the Python/Gymnasium interface.
 
-**Package 0.7.0 / simulator 0.5.0 requires fresh demonstrations and retrained models.** There are now 39 observations, six reward features, and schema 2 recordings. Older recordings remain visually replayable. Keep new experiments in a directory such as `data-v05`.
+**The simulator 0.5.0 upgrade requires fresh demonstrations and retrained models.** It introduced 39 observations, six reward features, and schema 2 recordings. Package 0.8.0 retains this base interface. Older recordings remain visually replayable. Keep new experiments in a directory such as `data-v05`.
 
 ```sh
 python -m racing_lab.cli play --track monza_long --data data-v05

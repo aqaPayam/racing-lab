@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/dasGringuen/assetto_corsa_gym",
+  "revision": "e56094890c2f8fe6ef2c969c3ac3404f3acd4eb4",
+  "files": {
+    "network.py": "15f6c44f63f1c55ede35214e6e6d3b1b69875ed6e4c8da04fe129bc65e4d2f78",
+    "replay_buffer.py": "fbce40663bf0998aeb0ce76fbd85762b4112374ecea5f69113b4383510712d6a",
+    "utils.py": "f268f7295ee96fe47ba8e75e69b0cd62011e7fadbb790c56698c7c75d9b00ddd",
+    "algorithm/base.py": "5eafbd81cb359b395abdc150a830da422271c102f9a6727321059a46e9f952bb",
+    "algorithm/sac.py": "82564360b8c2d2c874b0b6bf07bdd6d66b533c0379e1ef0c55469b12c51d3025"
+  }
+}

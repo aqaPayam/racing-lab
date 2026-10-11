@@ -174,7 +174,11 @@ def replay(args):
     if track is None:
         raise ValueError("Recording track hash does not match an installed layout")
     env = RacingEnv(
-        track, view=getattr(args, "view", "3d"), renderer=getattr(args, "renderer", "auto")
+        track,
+        view=getattr(args, "view", "3d"),
+        renderer=getattr(args, "renderer", "auto"),
+        dt=meta["dt"],
+        laps=meta.get("laps", 1),
     )
     env.reset()
     env.telemetry_available = "telemetry" in data
@@ -404,12 +408,16 @@ def main():
     p.add_argument("second")
     p.add_argument("--output", default="results/comparison.html")
     p.set_defaults(func=compare)
+    # Register without importing PyTorch; handlers load the optional RL package on demand.
+    from .rl_commands import add_sac_commands
+
+    add_sac_commands(commands)
     args = parser.parse_args()
     try:
         args.func(args)
     except ModuleNotFoundError as exc:
         parser.error(
-            f"Missing optional dependency {exc.name}. Install with: pip install -e '.[all]'"
+            f"Missing optional dependency {exc.name}. Install with: pip install -e '.[all,rl]'"
         )
     except (ValueError, OSError, RuntimeError) as exc:
         parser.error(str(exc))
