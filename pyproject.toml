@@ -4,17 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "racing-lab"
-version = "0.9.0"
+version = "0.10.0"
 description = "A reproducible racing laboratory with 2D and 3D views for imitation, IO and IRL research"
 requires-python = ">=3.10"
 readme = "README.md"
-license = "MIT"
+license = "MIT AND Apache-2.0"
 dependencies = ["numpy>=1.24", "gymnasium>=1.0"]
 
 [project.optional-dependencies]
 play = ["pygame-ce>=2.5", "moderngl>=5.12,<6"]
 train = ["scikit-learn>=1.4"]
 rl = ["torch>=2.6,<3"]
+benchmark = ["torch>=2.6,<3", "matplotlib>=3.8"]
 all = ["pygame-ce>=2.5", "moderngl>=5.12,<6", "scikit-learn>=1.4"]
 dev = ["pytest>=8", "ruff>=0.9", "build>=1.2"]
 
@@ -25,14 +26,14 @@ racing-lab = "racing_lab.cli:main"
 include = ["racing_lab*"]
 
 [tool.setuptools.package-data]
-racing_lab = ["tracks/*.json", "tracks/archive/*.json", "rl/LICENSES.txt"]
+racing_lab = ["tracks/*.json", "tracks/archive/*.json", "rl/LICENSES.txt", "rl/TD3_LICENSE.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["tests/fixtures/sac_author"]
+extend-exclude = ["tests/fixtures/sac_author", "tests/fixtures/td3_author"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]

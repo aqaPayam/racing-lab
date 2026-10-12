@@ -87,3 +87,8 @@ Offline test fixtures preserve the exact licensed author source plus SHA-256 has
 A CPU verification pilot used the default 256-by-256-by-256 networks, 2,000 random decisions followed by 1,000 updates, for 3,000 total decisions on Monza. It used no external data and produced finite losses/checkpoints/evaluation reports. It did not complete a valid lap. This validates the training path, not convergence or the paper's racing performance. Long-budget multi-seed experiments remain future benchmark work.
 
 See the [paper audit](online-rl-paper-audit.md) for broader source comparisons and [third-party notices](../THIRD_PARTY_NOTICES.md) for attribution.
+
+The [online SAC–TD3 benchmark](online-benchmark.md) adds independent training seeds,
+fresh instrumented SAC runs, matched evaluation starts, detailed resource accounting
+and validated reports. `train_online(..., algorithm="sac")` preserves this learner's
+update equations/order; the original `train-sac` command remains available.

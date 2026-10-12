@@ -14,6 +14,10 @@ Tests select SDL's dummy drivers for automated rendering. The full suite drives 
 
 The SAC tests require the optional PyTorch dependency and include numerical comparisons with pinned, licensed author-source fixtures. Do not reformat those fixtures; their hashes must remain unchanged. Training/evaluation artifacts and learned checkpoints stay outside Git.
 
+TD3 uses Apache-2.0 author-source fixtures with the same hash-preservation rule.
+Install `.[benchmark]` for the accounting/report tests and scientific figures.
+Keep source-specific licenses and notices when changing derived learning code.
+
 Keep numerical simulation independent of Pygame and algorithm-specific libraries. Add meaningful regression tests for changes to dynamics, recording alignment, episode outcomes, or model compatibility. Do not add tests that merely repeat implementation constants.
 
 Preserve the observation/action/feature ordering or document a deliberate compatibility change. `SIMULATOR_VERSION` identifies dynamics compatibility; the package version can change for tooling/documentation without changing dynamics. Change the simulator version when dynamics or observation semantics change. Increment track versions when geometry changes and preserve old layouts needed for replay. Never silently mix incompatible demonstrations in training.

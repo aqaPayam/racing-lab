@@ -43,3 +43,115 @@ def add_sac_commands(commands):
     p.add_argument("--threads", type=int, default=1)
     p.add_argument("--output", default="results/sac-evaluation.json")
     p.set_defaults(func=_evaluate)
+    p = commands.add_parser("train-td3", help="Train source-based TD3 from scratch")
+    p.add_argument("--track", choices=names(), default="monza")
+    p.add_argument("--steps", type=int, default=10_000)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--output", default="results/td3-monza-seed0")
+    p.add_argument("--reward-profile", choices=["common", "progress", "cth"], default="common")
+    p.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    p.set_defaults(func=_train_td3)
+    p = commands.add_parser("evaluate-td3", help="Evaluate or watch frozen TD3")
+    p.add_argument("--model", required=True)
+    p.add_argument("--track", choices=names() + ["all"], default="monza")
+    p.add_argument("--episodes", type=int, default=1)
+    p.add_argument("--jitter", type=float, default=0)
+    p.add_argument("--render", action="store_true")
+    p.add_argument("--view", choices=["2d", "3d"], default="3d")
+    p.add_argument("--output", default="results/td3-evaluation.json")
+    p.set_defaults(func=_evaluate_td3)
+    p = commands.add_parser(
+        "benchmark-online", help="Run a frozen, fully accounted SAC–TD3 benchmark"
+    )
+    p.add_argument("--output", required=True)
+    p.add_argument("--track", choices=names(), default="monza")
+    p.add_argument("--steps", type=int, default=200_000)
+    p.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
+    p.add_argument(
+        "--workers", type=int, default=1, help="Concurrent CPU runs; timings include contention"
+    )
+    p.add_argument(
+        "--continue-queue",
+        action="store_true",
+        help="Skip completed runs; never resume interrupted training",
+    )
+    p.set_defaults(func=_benchmark)
+    p = commands.add_parser(
+        "report-benchmark", help="Validate raw benchmark artifacts and regenerate the report"
+    )
+    p.add_argument("--input", required=True)
+    p.set_defaults(func=_report_benchmark)
+
+
+def _train_td3(args):
+    import json
+    from .rl.online import train_online
+
+    print(
+        json.dumps(
+            train_online(
+                args.output,
+                algorithm="td3",
+                track=args.track,
+                steps=args.steps,
+                seed=args.seed,
+                device=args.device,
+                reward_profile=args.reward_profile,
+            ),
+            indent=2,
+        )
+    )
+
+
+def _evaluate_td3(args):
+    import json
+    from dataclasses import replace
+    import torch
+    from .rl.config import RacingTaskConfig
+    from .rl.online import evaluate_online
+    from .rl.td3 import TD3Agent
+    from .rl.training import write_json
+
+    torch.set_num_threads(1)
+    agent, metadata = TD3Agent.load(args.model)
+    task = replace(RacingTaskConfig(**metadata["task"]), max_laps=4)
+    tracks = tuple(names()) if args.track == "all" else (args.track,)
+    report = evaluate_online(
+        agent,
+        tracks,
+        task,
+        episodes=args.episodes,
+        lateral_jitter=args.jitter,
+        render=args.render,
+        view=args.view,
+        reward_profile=metadata["reward_profile"],
+    )
+    write_json(args.output, report)
+    print(json.dumps(report["summary"], indent=2))
+
+
+def _benchmark(args):
+    from .rl.benchmark import BenchmarkConfig, run_benchmark
+
+    held_out = tuple(
+        track
+        for track in ("monza", "silverstone", "spa", "suzuka")
+        if track != args.track.removesuffix("_long")
+    )
+    run_benchmark(
+        args.output,
+        BenchmarkConfig(
+            track=args.track,
+            steps=args.steps,
+            seeds=tuple(args.seeds),
+            workers=args.workers,
+            held_out_tracks=held_out,
+        ),
+        continue_queue=args.continue_queue,
+    )
+
+
+def _report_benchmark(args):
+    from .rl.benchmark_report import generate_report
+
+    generate_report(args.input)

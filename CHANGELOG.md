@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0 — TD3 and accounted online benchmarks
+
+- Add F1TENTH-source TD3, numerical initialization/update parity, corrected uniform replay, frozen playback and Progress/CTH reward ablations.
+- Add fresh-process SAC–TD3 queues, frozen hashed protocols, five-seed budgets, paired robustness starts and zero-shot circuit tests.
+- Record training/evaluation interactions, physics/simulation work, optimizer/sample counts, CPU/wall/component times, native peak memory and inference latency.
+- Generate per-seed tables, descriptive seed variation, learning curves and standalone reports; failed times remain null.
+- Preserve SAC learning behavior, simulator 0.5.0 and existing ghost compatibility; fix SAC checkpoint track-ID inference.
+- Retain Apache-2.0 TD3 attribution and fixtures. Generated training artifacts stay outside Git.
+
 ## 0.9.0 — human versus SAC ghost practice
 
 - Add a cached, frozen SAC standing-start lap as a passive ghost for manual driving, with a shared countdown, matched timestep/vehicle aids and strict clean-lap comparisons.

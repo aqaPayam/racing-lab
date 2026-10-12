@@ -80,6 +80,7 @@ def evaluate_sac(
     render=False,
     view="3d",
     lateral_jitter=0.0,
+    trajectory_output=None,
 ):
     """Evaluate deterministic mean actions; no updates, expert queries or replay collection."""
     if isinstance(tracks, str) or not tracks or type(episodes) is not int or episodes < 1:
@@ -95,10 +96,37 @@ def evaluate_sac(
                 )
                 reset_hash = hashlib.sha256(env.env.state().tobytes()).hexdigest()
                 total, decisions = 0.0, 0
+                maximum_speed = 0.0
                 epoch = time.perf_counter()
+                inference_seconds = simulation_seconds = 0.0
+                inference_samples = []
+                states = [env.env.state().copy()] if trajectory_output else None
+                absolute_actions = []
+                trajectory_observations = [observation.copy()] if states is not None else []
+                policy_actions, trajectory_rewards, endings = [], [], []
                 while True:
+                    if str(agent.device).startswith("cuda"):
+                        torch.cuda.synchronize(agent.device)
+                    inference_start = time.perf_counter()
                     action = agent.act(observation, deterministic=True)
+                    if str(agent.device).startswith("cuda"):
+                        torch.cuda.synchronize(agent.device)
+                    latency = time.perf_counter() - inference_start
+                    inference_seconds += latency
+                    inference_samples.append(latency)
+                    simulation_start = time.perf_counter()
                     observation, reward, terminated, truncated, info = env.step(action)
+                    simulation_seconds += time.perf_counter() - simulation_start
+                    maximum_speed = max(
+                        maximum_speed, float(np.hypot(env.env.speed, env.env.lateral_speed))
+                    )
+                    if states is not None:
+                        states.append(env.env.state().copy())
+                        absolute_actions.append(env.env.action.copy())
+                        trajectory_observations.append(observation.copy())
+                        policy_actions.append(action.copy())
+                        trajectory_rewards.append(reward)
+                        endings.append((terminated, truncated))
                     decisions += 1
                     total += reward
                     interrupted = False
@@ -132,7 +160,47 @@ def evaluate_sac(
                         valid_lap_times=info["valid_lap_times"],
                         best_valid_lap=info["best_valid_lap"],
                         progress_laps=info["progress"],
+                        distance_metres=env.env.distance,
+                        average_speed_kmh=3.6 * env.env.distance / info["elapsed"],
+                        maximum_speed_kmh=3.6 * maximum_speed,
+                        flying_valid_lap_mean=(
+                            float(
+                                np.mean(
+                                    [
+                                        lap["time_seconds"]
+                                        for lap in info["lap_records"]
+                                        if lap["valid"] and not lap["standing_start"]
+                                    ]
+                                )
+                            )
+                            if any(
+                                lap["valid"] and not lap["standing_start"]
+                                for lap in info["lap_records"]
+                            )
+                            else None
+                        ),
                         collisions=info["collisions"],
+                        offtrack_steps=env.env.offtrack_steps,
+                        recoveries=env.env.recoveries,
+                        lap_records=info["lap_records"],
+                        standing_start_valid_lap=(
+                            info["lap_records"][0]["time_seconds"]
+                            if info["lap_records"] and info["lap_records"][0]["valid"]
+                            else None
+                        ),
+                        clean_four_lap_completion=bool(
+                            info["completed_laps"] == info["valid_laps"] == 4
+                            and info["collisions"]
+                            == env.env.offtrack_steps
+                            == env.env.recoveries
+                            == 0
+                            and not interrupted
+                        ),
+                        evaluation_wall_seconds=time.perf_counter() - epoch,
+                        inference_seconds=inference_seconds,
+                        simulation_wall_seconds=simulation_seconds,
+                        inference_mean_ms=1000 * inference_seconds / decisions,
+                        inference_p95_ms=float(np.percentile(inference_samples, 95) * 1000),
                         offtrack_fraction=info["offtrack_fraction"],
                         termination_reason="interrupted"
                         if interrupted
@@ -140,6 +208,21 @@ def evaluate_sac(
                         success=bool(info["valid_laps"] > 0 and not interrupted),
                     )
                 )
+                if states is not None:
+                    directory = Path(trajectory_output)
+                    directory.mkdir(parents=True, exist_ok=True)
+                    path = directory / f"{track}_seed{seed + episode}.npz"
+                    np.savez_compressed(
+                        path,
+                        states=np.asarray(states),
+                        actions=np.asarray(absolute_actions),
+                        policy_actions=np.asarray(policy_actions),
+                        observations=np.asarray(trajectory_observations),
+                        rewards=np.asarray(trajectory_rewards),
+                        terminated_truncated=np.asarray(endings, bool),
+                        timestamps=np.arange(decisions + 1) / task.decision_hz,
+                    )
+                    rows[-1]["trajectory_file"] = path.name
                 if interrupted:
                     break
         finally:
@@ -151,6 +234,9 @@ def evaluate_sac(
         reset_variation={"lateral_jitter": lateral_jitter},
         trials="deterministic repetitions" if lateral_jitter == 0 else "varied starts",
         gradient_updates=0,
+        evaluation_decisions=sum(row["decisions"] for row in rows),
+        evaluation_physics_substeps=sum(row["decisions"] for row in rows)
+        * int(np.ceil((1 / task.decision_hz) / (1 / 240))),
         task=asdict(task),
         task_hash=config_hash(task),
         rows=rows,
@@ -158,6 +244,7 @@ def evaluate_sac(
             episodes=len(rows),
             successful_episodes=sum(r["success"] for r in rows),
             success_rate=sum(r["success"] for r in rows) / len(rows),
+            clean_four_lap_rate=sum(r["clean_four_lap_completion"] for r in rows) / len(rows),
             valid_laps=len(times),
             mean_valid_lap=float(np.mean(times)) if times else None,
             best_valid_lap=min(times) if times else None,

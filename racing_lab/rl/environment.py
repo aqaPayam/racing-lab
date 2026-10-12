@@ -78,6 +78,7 @@ class SACRacingEnv(gym.Wrapper):
         self.current = current.copy()
         self.low_speed_steps = self.completed_laps = self.valid_laps = 0
         self.lap_times = []
+        self.lap_records = []
         self.last_lap_elapsed = 0.0
         self.lap_start_collisions = self.lap_start_offtrack = 0
         self.ended = False
@@ -91,6 +92,7 @@ class SACRacingEnv(gym.Wrapper):
             valid_laps=self.valid_laps,
             best_valid_lap=min(self.lap_times) if self.lap_times else None,
             valid_lap_times=list(self.lap_times),
+            lap_records=list(self.lap_records),
             success=self.valid_laps > 0,
             termination_reason=reason,
             requested_controls=self.targets.tolist(),
@@ -139,6 +141,14 @@ class SACRacingEnv(gym.Wrapper):
             if valid:
                 self.valid_laps += 1
                 self.lap_times.append(info["elapsed"] - self.last_lap_elapsed)
+            self.lap_records.append(
+                dict(
+                    lap=self.completed_laps,
+                    valid=bool(valid),
+                    time_seconds=info["elapsed"] - self.last_lap_elapsed,
+                    standing_start=self.completed_laps == 1,
+                )
+            )
             self.last_lap_elapsed = info["elapsed"]
             self.lap_start_collisions = self.env.collisions
             self.lap_start_offtrack = self.env.offtrack_steps

@@ -82,6 +82,20 @@ python -m racing_lab.cli evaluate-sac --model results/sac-monza-seed0/final.pt -
 
 Training starts from random initialization and an empty replay buffer, using only its own simulator experience. The default budget is a pilot. [SAC documentation](docs/sac-baseline.md) describes preserved paper settings, game adaptations, outputs and limitations. `[rl]` is separate from `[all]` so gameplay installations do not need PyTorch.
 
+## Compare online SAC and TD3
+
+The [online benchmark guide](docs/online-benchmark.md) defines the active no-expert-data
+comparison, source adaptations, five-seed protocol and interaction/compute accounting.
+Install `pip install -e ".[benchmark]"`, then:
+
+```sh
+python -m racing_lab.cli benchmark-online --output results/online-monza-five-seeds --seeds 0 1 2 3 4 --steps 200000
+```
+
+Reports include learning curves, every seed's outcomes, held-out tests, training/evaluation
+data counts, CPU/wall time and memory. The default queue is sequential; `--workers 4`
+enables concurrent CPU training and records that timing condition.
+
 ## Drive alongside a trained SAC ghost
 
 On this workspace, double-click **play-sac-ghost.bat** to race the trained 200k Monza checkpoint. For your own checkpoint:

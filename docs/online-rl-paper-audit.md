@@ -2,6 +2,12 @@
 
 Research date: 11 October 2026. Status: SAC with three-step returns has been implemented as a documented Racing Lab adaptation; see the [baseline implementation](sac-baseline.md). The other candidates remain proposals, and full benchmark comparisons have not been run.
 
+Update, 12 October 2026: TD3 is implemented with pinned-source numerical parity,
+shared-task controls and corrected replay accounting. The [online benchmark protocol](online-benchmark.md)
+defines the five-seed SAC–TD3 comparison; Progress/CTH are separately labeled reward
+ablations. PPO/QR-SAC/TD-MPC2 remain proposals. Experiment completion is recorded in
+each local queue/result report, not implied by implementation status.
+
 The active setting is online reinforcement learning from random initialization. Each agent collects its own transitions through the simulator and learns from a fixed task reward. Human demonstrations, expert-controller datasets, behavior-cloning initialization, pretrained policies, inverse optimization and inverse reinforcement learning are deferred. An off-policy replay buffer contains the learning agent's experience; it does not require an external dataset.
 
 ## Recommended papers

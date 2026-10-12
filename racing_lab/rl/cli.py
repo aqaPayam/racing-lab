@@ -44,7 +44,16 @@ def evaluate_command(args):
     task = replace(
         task, max_laps=4, **({"max_seconds": args.seconds} if args.seconds is not None else {})
     )
-    tracks = tuple(names()) if args.track == "all" else (args.track or metadata["track"],)
+    track_id = metadata.get("track_id")
+    if track_id is None:
+        from ..track import Track
+
+        track_id = next(
+            (name for name in names() if Track(name).digest == metadata["track_sha256"]), None
+        )
+    if args.track is None and track_id is None:
+        raise ValueError("Checkpoint track is unavailable; specify --track")
+    tracks = tuple(names()) if args.track == "all" else (args.track or track_id,)
     report = evaluate_sac(
         agent,
         tracks,

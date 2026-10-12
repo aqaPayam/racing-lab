@@ -1,0 +1,10 @@
+{
+  "source": "https://github.com/BDEvan5/f1tenth_benchmarks",
+  "revision": "c9730789dd0fa85fc18dd4b600c5246e134ebe22",
+  "license": "Apache-2.0",
+  "files": {
+    "td3.py": "139593e631ff7fe1ab380abaf6bd4e373cab87b8565328f6aab796bd5d4f18e5",
+    "training_utils.py": "32438177fce8bf55994e92424193cb61b1f0e3fc673001f49b617c253894c949",
+    "LICENSE.md": "094bedda295c0702807d1027a00e1134f4cb71d523dc49f6d4b3caf589053068"
+  }
+}
