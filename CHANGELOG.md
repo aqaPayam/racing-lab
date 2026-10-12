@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Retry transient Windows reader locks when replacing benchmark status JSON, while retaining atomic writes and propagating persistent permission failures. Added after the completed five-seed experiment; its frozen training source and results remain unchanged.
+
 ## 0.10.0 — TD3 and accounted online benchmarks
 
 - Add F1TENTH-source TD3, numerical initialization/update parity, corrected uniform replay, frozen playback and Progress/CTH reward ablations.

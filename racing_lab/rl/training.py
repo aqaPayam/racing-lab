@@ -28,11 +28,19 @@ from .sac import SACAgent
 
 
 def write_json(path, value):
+    """Replace JSON atomically, tolerating a temporary Windows reader lock."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, allow_nan=False), encoding="utf-8")
-    temporary.replace(path)
+    for attempt in range(40):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if attempt == 39:
+                raise
+            time.sleep(min(0.05 * (attempt + 1), 0.5))
 
 
 def _versions():
