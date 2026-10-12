@@ -1,4 +1,4 @@
-include LICENSE README.md CHANGELOG.md CONTRIBUTING.md THIRD_PARTY_NOTICES.md play.bat
+include LICENSE README.md CHANGELOG.md CONTRIBUTING.md THIRD_PARTY_NOTICES.md play.bat play-sac-ghost.bat
 recursive-include docs *.md *.png
 recursive-include examples *.py
 recursive-include tests *.py

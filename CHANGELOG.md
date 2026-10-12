@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — human versus SAC ghost practice
+
+- Add a cached, frozen SAC standing-start lap as a passive ghost for manual driving, with a shared countdown, matched timestep/vehicle aids and strict clean-lap comparisons.
+- Add live progress-aligned gaps, orange/teal racing-line overlays in 2D and the minimap, and local HTML/JSON comparison reports with speed/braking/path data.
+- Add a Windows ghost launcher and checkpoint/track/configuration compatibility checks. No training or expert-data ingestion occurs in practice mode.
+- Use each environment's timestep for ghost playback, camera smoothing and personal-best timestamps; separate personal-best caches by timestep.
+- Simulator compatibility remains 0.5.0; existing trained SAC weights and training defaults are unchanged.
+
 ## 0.8.0 — online SAC with three-step returns
 
 - Add an optional PyTorch SAC baseline, following pinned racing-author networks, losses and update order; fresh initialization and online-only replay.

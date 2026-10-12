@@ -54,7 +54,7 @@ class Scene2D:
         if self.center is None or env.steps < self.last_step:
             self.center = env.pos.copy()
             self.heading = env.heading
-        elapsed = max(0, env.steps - self.last_step) / 60
+        elapsed = max(0, env.steps - self.last_step) * env.dt
         blend = 1 - np.exp(-elapsed * 8)
         target = env.pos + np.array([np.cos(env.heading), np.sin(env.heading)]) * (
             180 / max(1, self.scale)
@@ -138,9 +138,17 @@ class Scene2D:
             viewer.trail = viewer.trail[-24000:]
         if len(viewer.trail) > 1 and not viewer.zoom:
             pygame.draw.lines(screen, (59, 188, 181), False, xy(viewer.trail), 1)
-        practice = getattr(viewer, "practice", None)
+        if viewer.agent_ghost and viewer.show_lines:
+            pygame.draw.lines(
+                screen, (65, 220, 208), False, xy(viewer.agent_ghost.states[:, :2]), 2
+            )
+            if viewer.human_line and len(viewer.human_line) > 1:
+                pygame.draw.lines(
+                    screen, (255, 174, 93), False, xy(np.asarray(viewer.human_line)[:, :2]), 2
+                )
+        practice = viewer.ghost_reference
         if practice and viewer.show_ghost:
-            ghost = practice.ghost(env.steps / 60)
+            ghost = viewer.ghost_pose()
             if ghost is not None:
                 self.car(screen, xy, ghost[:2], ghost[2], ghost[6], scale, ghost=True)
         self.car(screen, xy, env.pos, env.heading, env.steering, scale)

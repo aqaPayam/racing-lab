@@ -1,6 +1,8 @@
 """Shared, presentation-only instruments for both game views."""
 
 import pygame
+import numpy as np
+import math
 
 
 def draw(viewer, camera):
@@ -59,7 +61,7 @@ def draw(viewer, camera):
     practice = getattr(viewer, "practice", None)
     if practice and practice.best_time is not None:
         text(f"BEST {practice.best_time:.2f}s", (915, 756), (255, 208, 96))
-        delta = practice.delta(env.progress, env.steps / 60)
+        delta = practice.delta(env.progress, env.steps * env.dt)
         if delta is not None:
             text(
                 f"DELTA {delta:+.2f}s",
@@ -67,7 +69,51 @@ def draw(viewer, camera):
                 (114, 218, 198) if delta < 0 else (244, 139, 106),
             )
     text(viewer.note[:77], (275, 849), (167, 184, 195))
-    if info["invalid_lap"]:
+    reference = getattr(viewer, "agent_ghost", None)
+    if reference:
+        from .agent_ghost import strict_clean
+
+        clean = strict_clean(env)
+        valid_finish = info["finished"] and clean
+        panel((18, 112, 650, 140))
+        text("SAC GHOST / SAME STANDING START", (38, 122), (65, 220, 208))
+        text(f"SAC {reference.best_time:.2f}s   YOU {info['elapsed']:.2f}s", (38, 151))
+        delta = (
+            info["elapsed"] - reference.best_time
+            if valid_finish
+            else reference.delta(env.progress, info["elapsed"])
+        )
+        if viewer.race_phase == "finished" and not valid_finish:
+            text("NO CLEAN LAP TIME / Space to try again", (38, 180), (255, 174, 93))
+        elif delta is not None:
+            status = "BEHIND" if delta > 0.005 else "AHEAD" if delta < -0.005 else "LEVEL"
+            label = "FINISH GAP" if valid_finish else "GAP AT EQUAL PROGRESS"
+            text(
+                f"{label}: {delta:+.2f}s {status}",
+                (38, 180),
+                (255, 174, 93) if delta > 0 else (65, 220, 208),
+            )
+        status = (
+            "CLEAN LAP"
+            if valid_finish
+            else "CLEAN SO FAR"
+            if clean
+            else "INVALID: off-road / collision / recovery"
+        )
+        text(status, (38, 211), (65, 220, 208) if clean else (255, 116, 97))
+        if viewer.race_phase in ("ready", "countdown", "finished"):
+            panel((340, 340, 540, 86))
+            message = (
+                "SPACE / ENTER TO RACE"
+                if viewer.race_phase == "ready"
+                else str(max(1, math.ceil(viewer.countdown)))
+                if viewer.race_phase == "countdown"
+                else "LAP FINISHED / SPACE AGAIN"
+                if info["finished"]
+                else "RUN STOPPED / SPACE AGAIN"
+            )
+            text(message, (365, 365), large=True)
+    elif info["invalid_lap"]:
         text("RECOVERY USED / LAP INVALID", (420, 111), (255, 183, 90))
     elif env.impact > 0.4:
         text(f"BARRIER CONTACT  {env.impact * 3.6:.0f} km/h impact", (380, 111), (255, 108, 96))
@@ -80,4 +126,31 @@ def draw(viewer, camera):
     scale = min(167 / max(1, (hi - lo)[0]), 154 / max(1, (hi - lo)[1]))
     mapped = (points - (lo + hi) / 2) * scale + [1085, 204]
     pygame.draw.lines(screen, (113, 137, 148), True, mapped, 2)
-    pygame.draw.circle(screen, (255, 210, 98), (env.pos - (lo + hi) / 2) * scale + [1085, 204], 4)
+    if reference:
+        if viewer.show_lines:
+            pygame.draw.lines(
+                screen,
+                (65, 220, 208),
+                False,
+                (reference.states[:, :2] - (lo + hi) / 2) * scale + [1085, 204],
+                1,
+            )
+            if viewer.human_line and len(viewer.human_line) > 1:
+                pygame.draw.lines(
+                    screen,
+                    (255, 174, 93),
+                    False,
+                    (np.asarray(viewer.human_line)[:, :2] - (lo + hi) / 2) * scale + [1085, 204],
+                    1,
+                )
+        if viewer.show_ghost:
+            pose = reference.ghost(info["elapsed"])
+            pygame.draw.circle(
+                screen, (65, 220, 208), (pose[:2] - (lo + hi) / 2) * scale + [1085, 204], 4
+            )
+    pygame.draw.circle(
+        screen,
+        (255, 174, 93) if reference else (255, 210, 98),
+        (env.pos - (lo + hi) / 2) * scale + [1085, 204],
+        4,
+    )

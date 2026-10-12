@@ -16,8 +16,14 @@ from .timing import FixedStepClock
 def play(args):
     import pygame
 
+    reference = None
+    if getattr(args, "sac_ghost", None):
+        from .agent_ghost import prepare_sac_ghost
+
+        reference = prepare_sac_ghost(args.sac_ghost, args.track, args.ghost_cache)
     env = RacingEnv(
         args.track,
+        dt=reference.identity["dt"] if reference else DT,
         max_seconds=args.seconds,
         view=getattr(args, "view", "3d"),
         renderer=getattr(args, "renderer", "auto"),
@@ -28,6 +34,8 @@ def play(args):
         ),
     )
     env.reset(seed=args.seed)
+    if reference:
+        reference.validate_player(env)
     env.render()
     clock = pygame.time.Clock()
     gamepad = getattr(args, "gamepad", None)
@@ -51,18 +59,63 @@ def play(args):
     )
     env.viewer.camera_motion = getattr(args, "camera_motion", False)
     env.viewer.practice = PracticeBook(env, getattr(args, "practice", "results/practice"))
+    env.viewer.agent_ghost = reference
     pending_commands = {}
-    recorder = Recorder(env, seed=args.seed, control_settings=controller.metadata())
-    scheduler = FixedStepClock()
-    paused = False
+    control_settings = controller.metadata()
+    if reference:
+        control_settings["ghost_reference"] = reference.identity
+    source = "human_ghost_comparison" if reference else "human"
+    recorder = Recorder(env, source=source, seed=args.seed, control_settings=control_settings)
+    env.viewer.human_line = recorder.states
+    scheduler = FixedStepClock(dt=env.dt)
+    if reference:
+        from .agent_ghost import GhostRaceStart
+
+        race_start = GhostRaceStart()
+    else:
+        race_start = None
+    paused = bool(reference)
+    saved_attempt = False
     running = True
     pending_track = args.track
 
     def save(label, reason):
-        env.viewer.practice.consider(recorder)
-        path = recorder.save(args.data, label, reason)
+        nonlocal saved_attempt
+        if reference and saved_attempt:
+            return
+        if not reference:
+            env.viewer.practice.consider(recorder)
+        directory = Path(args.ghost_results) / "recordings" if reference else args.data
+        path = recorder.save(directory, label, reason)
         if path:
             print(f"Saved {path} ({label})", flush=True)
+            if reference:
+                from .agent_ghost import comparison_report
+                from .practice import comparison_html
+
+                report = comparison_report(recorder, reference, path, reason)
+                output = Path(args.ghost_results) / f"{path.stem}_comparison.html"
+                output.write_text(comparison_html(report), encoding="utf-8")
+                output.with_suffix(".json").write_text(
+                    json.dumps(report, indent=2), encoding="utf-8"
+                )
+                print(f"Saved your SAC comparison: {output}", flush=True)
+                saved_attempt = True
+
+    def restart_ghost():
+        nonlocal recorder, pending_commands, paused, saved_attempt
+        save("unlabeled", "restarted")
+        env.reset(seed=args.seed)
+        reference.validate_player(env)
+        env.viewer.trail = []
+        recorder = Recorder(env, source=source, seed=args.seed, control_settings=control_settings)
+        env.viewer.human_line = recorder.states
+        pending_commands = {}
+        controller.reset()
+        scheduler.reset()
+        saved_attempt = False
+        race_start.start()
+        paused = True
 
     try:
         while running:
@@ -85,15 +138,24 @@ def play(args):
                     audio.enabled = not audio.enabled
                 if event.key == pygame.K_p:
                     env.viewer.show_ghost = not env.viewer.show_ghost
+                if event.key == pygame.K_l and reference:
+                    env.viewer.show_lines = not env.viewer.show_lines
                 if event.key == pygame.K_c:
                     env.viewer.cycle_camera()
                 if event.key == pygame.K_v:
                     env.viewer.mode = "2d" if env.viewer.mode == "3d" else "3d"
                 if event.key == pygame.K_r and not paused:
                     paused = True
-                if paused and pygame.K_1 <= event.key < pygame.K_1 + len(names()):
+                    if reference:
+                        race_start.phase = "finished"
+                        save("unlabeled", "user_stop")
+                if reference and paused and event.key in (pygame.K_SPACE, pygame.K_RETURN):
+                    if race_start.phase != "countdown":
+                        restart_ghost()
+                        elapsed = 0
+                if not reference and paused and pygame.K_1 <= event.key < pygame.K_1 + len(names()):
                     pending_track = names()[event.key - pygame.K_1]
-                if paused and event.key in (pygame.K_g, pygame.K_b, pygame.K_u):
+                if not reference and paused and event.key in (pygame.K_g, pygame.K_b, pygame.K_u):
                     save(
                         {pygame.K_g: "good", pygame.K_b: "bad", pygame.K_u: "unlabeled"}[event.key],
                         "completed" if env.info()["success"] else "interrupted_or_timeout",
@@ -102,6 +164,7 @@ def play(args):
                     env.reset(seed=args.seed)
                     env.viewer.trail = []
                     recorder = Recorder(env, seed=args.seed, control_settings=controller.metadata())
+                    env.viewer.human_line = recorder.states
                     env.viewer.practice = PracticeBook(
                         env, getattr(args, "practice", "results/practice")
                     )
@@ -112,6 +175,11 @@ def play(args):
                     paused = False
             if not running:
                 break
+            if race_start and race_start.advance(elapsed):
+                scheduler.reset()
+                controller.reset()
+                elapsed = 0
+                paused = False
             if not paused:
                 keys = pygame.key.get_pressed()
                 target = np.array(
@@ -133,17 +201,28 @@ def play(args):
                     pending_commands.update(buttons)
                 for _ in range(scheduler.advance(elapsed)):
                     action = (
-                        analog if gamepad is not None else controller.update(target, env.speed, DT)
+                        analog
+                        if gamepad is not None
+                        else controller.update(target, env.speed, env.dt)
                     )
                     transition = env.step(action, commands=pending_commands)
                     pending_commands = {}
                     recorder.append(action, transition)
                     paused = transition[2] or transition[3]
                     if paused:
+                        if reference:
+                            race_start.phase = "finished"
+                            save("unlabeled", "completed" if env.info()["finished"] else "timeout")
                         break
             else:
                 scheduler.reset()
-            if paused:
+            if reference:
+                env.viewer.race_phase = race_start.phase
+                env.viewer.countdown = race_start.remaining
+                env.viewer.note = (
+                    "Space race / restart | C camera | V view | L lines | P ghost | Esc exit"
+                )
+            elif paused:
                 env.viewer.note = f"G good / B bad / U unlabeled | next: {pending_track} | 1-4 compact, 5-8 GP-length"
             else:
                 env.viewer.note = (
@@ -153,7 +232,11 @@ def play(args):
                         if gamepad is not None
                         else ("assisted keys" if controller.settings.assisted else "raw keys")
                     )
-                    + (" | STALL: simulation paused" if scheduler.suspended else " | physics 60 Hz")
+                    + (
+                        " | STALL: simulation paused"
+                        if scheduler.suspended
+                        else f" | physics {1 / env.dt:g} Hz"
+                    )
                 )
             audio.update(env, paused)
             env.render()
@@ -343,6 +426,15 @@ def main():
     p.add_argument("--camera-motion", action="store_true", help="Enable subtle cockpit body motion")
     p.add_argument(
         "--practice", default="results/practice", help="Local personal-best/ghost directory"
+    )
+    p.add_argument(
+        "--sac-ghost", metavar="MODEL", help="Drive against a frozen SAC standing-start ghost"
+    )
+    p.add_argument("--ghost-cache", default="results/sac-ghost/cache")
+    p.add_argument(
+        "--ghost-results",
+        default="results/sac-ghost/sessions",
+        help="Local human/SAC practice comparison directory",
     )
     p.add_argument("--track", choices=names(), default="monza")
     p.add_argument("--data", default="data")

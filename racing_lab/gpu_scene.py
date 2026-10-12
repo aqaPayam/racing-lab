@@ -237,12 +237,12 @@ class GPUScene(Scene3D):
         self.program["opacity"].value = 1.0
         self.static[1].render()
         self.dynamic[1].render()
-        if viewer.show_ghost and viewer.practice:
-            pose = viewer.practice.ghost(env.steps / 60)
+        if viewer.show_ghost and viewer.ghost_reference:
+            pose = viewer.ghost_pose()
             if pose is not None:
                 from .practice import ghost_environment
 
-                gm, gc = self.car.mesh(ghost_environment(env.track, pose, env.steps / 60))
+                gm, gc = self.car.mesh(ghost_environment(env.track, pose, env.steps * env.dt))
                 gc[:] = [65, 220, 240]
                 if self.ghost_mesh is None:
                     self.ghost_mesh = self.upload(gm, gc)

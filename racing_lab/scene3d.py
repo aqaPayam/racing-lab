@@ -363,14 +363,16 @@ class Scene3D:
         dynamic = [(shadow, (34, 42, 40))]
         if self.camera != 1:
             dynamic += self.car_faces(env)
-        if viewer.show_ghost and viewer.practice:
-            pose = viewer.practice.ghost(env.steps / 60)
+        if viewer.show_ghost and viewer.ghost_reference:
+            pose = viewer.ghost_pose()
             if pose is not None:
                 from .practice import ghost_environment
 
                 dynamic += [
                     (v, (60, 180, 190))
-                    for v, _ in self.car_faces(ghost_environment(env.track, pose, env.steps / 60))
+                    for v, _ in self.car_faces(
+                        ghost_environment(env.track, pose, env.steps * env.dt)
+                    )
                 ]
         car_mesh, car_colors = self.pack(dynamic)
         mesh = np.concatenate([self.mesh[mask], car_mesh])

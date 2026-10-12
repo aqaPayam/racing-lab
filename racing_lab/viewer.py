@@ -23,9 +23,27 @@ class Viewer:
         self.scene3d = None
         self.scene2d = None
         self.practice = None
+        self.agent_ghost = None
+        self.human_line = None
+        self.show_lines = True
+        self.race_phase = "ready"
+        self.countdown = 3.0
         self.show_ghost = True
         self.camera_motion = False
         self.renderer_status = "2D"
+
+    @property
+    def ghost_reference(self):
+        return self.agent_ghost or self.practice
+
+    def ghost_pose(self):
+        reference = self.ghost_reference
+        pose = reference.ghost(self.env.steps * self.env.dt) if reference else None
+        # A coincident SAC car causes depth flicker and can obscure the player's car.
+        # Only presentation is hidden; its timing, map marker and line remain visible.
+        if self.agent_ghost and pose is not None and np.linalg.norm(pose[:2] - self.env.pos) < 2:
+            return None
+        return pose
 
     def cycle_camera(self):
         if self.mode == "3d":

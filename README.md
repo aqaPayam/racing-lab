@@ -77,10 +77,22 @@ Install `pip install -e ".[rl]"`, then run the source-based SAC baseline:
 
 ```sh
 python -m racing_lab.cli train-sac --track monza --steps 10000 --output results/sac-monza-seed0
-python -m racing_lab.cli evaluate-sac --model results/sac-monza-seed0/final.pt --render --view 3d
+python -m racing_lab.cli evaluate-sac --model results/sac-monza-seed0/final.pt --track monza --render --view 3d
 ```
 
 Training starts from random initialization and an empty replay buffer, using only its own simulator experience. The default budget is a pilot. [SAC documentation](docs/sac-baseline.md) describes preserved paper settings, game adaptations, outputs and limitations. `[rl]` is separate from `[all]` so gameplay installations do not need PyTorch.
+
+## Drive alongside a trained SAC ghost
+
+On this workspace, double-click **play-sac-ghost.bat** to race the trained 200k Monza checkpoint. For your own checkpoint:
+
+```sh
+python -m racing_lab.cli play --track monza --sac-ghost results/sac-monza-seed0/final.pt
+```
+
+Press **Space/Enter** for a three-second countdown; both cars start from rest. You drive normally while the frozen SAC lap appears as a passive teal ghost. **V** switches views, **C** selects the camera or 2D overview, **L** toggles racing lines, **P** hides/shows the ghost, and **Space** after a run starts another attempt. Your line is orange; SAC's is teal. The live gap is measured at equal track progress, with negative values meaning you are ahead.
+
+The reference is the agent's first clean standing-start lap, rather than its fastest flying lap. The player matches its track, timestep and vehicle aids. Clean completed laps receive a finish-time comparison; dirty or unfinished laps retain their trajectories but have no valid lap time. HTML/JSON reports and your recordings stay in `results/sac-ghost/sessions`, with reference caches in `results/sac-ghost/cache`. Practice never trains or changes the checkpoint. Checkpoints are local artifacts and are not included in Git. See [driving and practice](docs/driving.md) for details.
 
 ## Documentation
 
