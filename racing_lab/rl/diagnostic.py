@@ -274,6 +274,7 @@ def run_diagnostic(output, config=None, *, continue_queue=False):
                     completed_unix=time.time(),
                     queue_and_reporting_wall_seconds=time.perf_counter() - started,
                     controller_cpu_seconds=time.process_time() - cpu_started,
+                    controller_lifetime_cpu_seconds=time.process_time(),
                     report_sha256=hashlib.sha256(
                         (output / "report/report.html").read_bytes()
                     ).hexdigest(),
@@ -359,6 +360,7 @@ def run_diagnostic_worker(manifest_path, index):
             started_unix=started,
             finished_unix=time.time(),
             resources=meter.report(),
+            process_lifetime_cpu_seconds=time.process_time(),
             timing_scope="worker after framework imports; includes training and all evaluation",
         ),
     )

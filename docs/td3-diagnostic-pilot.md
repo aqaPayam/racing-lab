@@ -103,7 +103,9 @@ limited precision and do not isolate interactions between interventions.
 Training and evaluation decisions, simulated seconds and physics substeps are separate.
 Costs include critic/actor updates, sample presentations, per-phase wall times, worker
 CPU time, peak RSS, model capacity and checkpoint size. Queue wall time includes worker
-startup and contention; worker meters start after framework imports. Their wall times
+startup and contention; worker meters start after framework imports. An additional
+process-lifetime CPU counter includes framework startup for every worker and the
+controller. Their wall times
 must not be summed and called the queue's elapsed duration. `completion.json` adds
 reporting time and controller CPU. Memory is process lifetime peak, including imports.
 Infrastructure/unit-test/smoke-test costs are separate from these training costs.

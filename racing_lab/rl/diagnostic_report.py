@@ -143,6 +143,9 @@ def collect_diagnostic(root):
         fixed = _read(directory / "evaluation_final.json")["rows"][0]
         row.update(
             condition=spec["condition"],
+            process_lifetime_cpu_seconds=_read(directory / "worker_result.json")[
+                "process_lifetime_cpu_seconds"
+            ],
             random_action_decisions=result["random_action_decisions"],
             visited_training_bins=result["diagnostics"]["visited_training_bins"],
             training_coverage_fraction=result["diagnostics"]["visited_training_bins"] / 64,
@@ -286,6 +289,7 @@ def generate_diagnostic_report(root):
             training_decisions=summary["total_training_decisions"],
             evaluation_decisions=summary["total_evaluation_decisions"],
             worker_cpu_seconds=sum(row["process_cpu_seconds"] for row in records),
+            worker_lifetime_cpu_seconds=sum(row["process_lifetime_cpu_seconds"] for row in records),
             sum_worker_wall_seconds=sum(row["worker_wall_seconds"] for row in records),
             queue_wall_seconds=_read(root / "queue.json")["queue_wall_seconds"]
             if (root / "queue.json").exists()
