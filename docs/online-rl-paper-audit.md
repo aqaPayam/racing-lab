@@ -166,9 +166,9 @@ controlled experiments separate reset distribution, exploration, reward and timi
 Network capacity and sensor substitutions also differ; they are not isolated causes
 in this comparison.
 
-### Recommended next experiment, without expert data
+### Diagnostic study proposed at this audit, completed 13 October 2026
 
-First run a diagnostic TD3 pilot, retaining the completed results unchanged. Use
+The initial audit proposed the following diagnostic TD3 pilot, retaining the completed results unchanged. Use
 three fresh, predeclared seeds (5, 6, 7), 50,000 decisions per condition and four
 conditions: the existing common task, a 2,000-decision uniform random warmup,
 random longitudinal training starts, and the existing CTH-style reward. Change one
@@ -192,6 +192,15 @@ TD3 target-speed/control-frequency profile can be studied separately; its differ
 action/control task must not be pooled into the shared-task ranking. TAL, human
 datasets, expert query labels and pretrained policies remain excluded.
 
+The pilot has now completed all 12 runs. None of its final-budget policies completed
+a lap, although random starts provided exposure to every training-track bin. Its
+[completed protocol and results](td3-diagnostic-pilot.md#completed-local-experiment-13-october-2026)
+record data, reliability, braking and measured costs. The current recommendation is
+a separate comparison of absolute and incremental control commands with matched
+random starts, before choosing a longer common benchmark. That follow-up has not
+started. The provisional 1M-decision comparison above remains conditional on resolving
+the learning difficulty and declaring a new budget; no such runs were launched.
+
 Primary references: [SAC final paper, Appendix E.1](https://proceedings.neurips.cc/paper_files/paper/2024/file/b91ea2ba1b6521940e204b7b81d5ef47-Paper-Datasets_and_Benchmarks_Track.pdf),
 [TD3 paper, Sections III-E and IV-B](https://arxiv.org/html/2402.18558v2),
 [TD3 author controller](https://github.com/BDEvan5/f1tenth_benchmarks/blob/c9730789dd0fa85fc18dd4b600c5246e134ebe22/f1tenth_benchmarks/drl_racing/EndToEndAgent.py),
@@ -200,7 +209,7 @@ Primary references: [SAC final paper, Appendix E.1](https://proceedings.neurips.
 
 ## Original implementation plan: 11 October 2026
 
-This historical plan preceded the completed comparison. Steps 1–4 have since been carried out; the current recommended diagnostic experiment is specified in the post-benchmark audit above. The original 3,000-decision CPU pilot verified the runner, not convergence. No demonstration-based method has been added to this stage.
+This historical plan preceded the completed comparison. Steps 1–4 and the later four-condition diagnostic have since been carried out; the current recommendation is stated in the diagnostic completion note above. The original 3,000-decision CPU pilot verified the runner, not convergence. No demonstration-based method has been added to this stage.
 
 1. Freeze a SAC specification with every setting marked paper-confirmed, code-confirmed, differing or unavailable. Resolve the discrepancy table and choose the declared profile.
 2. Create an adapter ledger for observation ordering/units/history, action increments/clipping/reset, policy timing, reward scale, launch/reset assistance and episode ends. Require an explanation for every difference.

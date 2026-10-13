@@ -138,3 +138,70 @@ queue skips only completed compatible workers. An incomplete run is preserved an
 requires a fresh run directory; checkpoint weights alone cannot exactly resume
 without replay, RNG and simulator state. Do not change frozen source, runtime or tracks
 while the queue is active.
+
+## Completed local experiment: 13 October 2026
+
+All 12 fresh runs completed the declared budget without expert data or pretrained
+initialization. The source commit was `c1f792436d00a3b3752327e64b917a9a4fdc7854` and
+the manifest hash was
+`76ab85b2288265d44220ae703314adf2ef3498605ccaa0a816a5aa27d8889cc0`.
+
+| Condition | Policies with a clean fixed-start lap | Successful varied starts | Mean fixed progress (sample SD) | Mean training exposure |
+| --- | --- | --- | --- | --- |
+| Baseline | 0/3 | 0/15 | 11.64% (9.83%) | 13.54% |
+| Uniform warmup | 0/3 | 0/15 | 16.98% (0.07%) | 18.75% |
+| Random starts | 0/3 | 0/15 | 17.17% (0.21%) | 100% |
+| CTH reward | 0/3 | 0/15 | 13.93% (5.52%) | 18.23% |
+
+No final-budget policy completed any lap. Four-clean-lap policy counts are therefore
+0/3 in every condition, and both standing/flying valid times have successful-policy
+count zero. Each condition's 15 varied starts reuse three policies; these are not
+15 independent training seeds. Exposure includes projected off-road poses and is
+not evidence that a policy can drive the full circuit.
+
+Random starts gave all three policies downstream training experience; their greatest
+training episode progresses were 38.88%, 59.01% and 51.53% from their randomly selected
+starts. Their final fixed-start evaluations still failed at the first chicane.
+Warmup overcame the baseline seed-5 starting stall but did not solve the chicane.
+Final applied braking after three seconds appeared in 0/3 baseline, 2/3 warmup,
+2/3 random-start and 1/3 CTH policies; this alone does not establish effective braking.
+Two CTH policies ended through low speed and one through off-road failure.
+
+| Condition | Training decisions | Additional evaluation decisions | Mean worker wall minutes (sample SD) | Total process-lifetime worker CPU hours | Maximum worker peak RSS (MiB) |
+| --- | --- | --- | --- | --- | --- |
+| Baseline | 150,000 | 6,117 | 31.19 (1.75) | 1.5562 | 341.08 |
+| Uniform warmup | 150,000 | 7,748 | 30.45 (1.31) | 1.5196 | 341.02 |
+| Random starts | 150,000 | 7,580 | 30.47 (1.83) | 1.5207 | 341.20 |
+| CTH reward | 150,000 | 16,164 | 32.46 (2.19) | 1.6199 | 343.82 |
+
+Totals: 600,000 training and 37,609 evaluation decisions; 24,000 training and 1,504.36
+evaluation simulated seconds; 6,000,000 training and 376,090 evaluation physics
+substeps. Every run performed 99,800 twin-critic and 49,900 actor optimizer steps,
+with 9,980,000 critic minibatch row presentations. Across all runs this is 1,197,600
+twin-critic updates, 598,800 actor updates and 119,760,000 reused critic sample rows.
+Each policy has 82,105 trainable parameters.
+
+The measured queue plus report duration was 5,728.70 seconds (1 h 35 min 28.70 s).
+Worker process-lifetime CPU totaled 22,379.19 seconds, including framework startup;
+controller lifetime CPU was 31.19 seconds. Combined CPU was 6.2251 hours.
+Worker wall times include all evaluations and concurrent contention and start after
+framework imports. They do not represent isolated algorithm speeds or queue duration.
+Peak RSS is per-process lifetime peak, not total-machine peak RAM.
+
+Independent verification checked all 324 raw artifact hashes, all 132 evaluation
+traces, paired physical resets, counts, checkpoint action reproduction and exact
+frozen source/track bytes. All 230 earlier SAC–TD3 benchmark artifacts remained
+unchanged. The separate smoke test used 800 training and 2,359 evaluation decisions,
+55.81 seconds wall time, and 76.81 seconds worker-plus-controller CPU measured after
+imports; it is excluded from pilot scores and main cost totals. Independent post-run
+verification added 12.35 seconds wall and 11.89 seconds CPU after imports, with no
+extra training or evaluation rollouts. Unit-test and development effort is not
+included in the pilot cost ledger.
+
+These short three-seed results identify continued difficulty in the current task;
+they do not prove convergence, superiority or a unique cause. The CTH condition
+bundles reward scale, heading and event changes. The next recommended study is a
+separate, matched comparison of absolute and incremental control commands with
+identical random training starts. This tests a remaining control-interface hypothesis
+without expert data. It has not been started, and requires a new frozen specification
+and training budget. The completed pilot and earlier benchmark remain separate.
