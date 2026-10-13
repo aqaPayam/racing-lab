@@ -73,6 +73,9 @@ def train_online(
     progress=True,
     reward_profile="common",
     benchmark_hash=None,
+    uniform_warmup_decisions=0,
+    random_training_starts=False,
+    capture_diagnostics=False,
 ):
     """Fresh initialization only. No external data, resume, controller or model input.
 
@@ -86,6 +89,12 @@ def train_online(
         raise ValueError("steps must be positive and seed a nonnegative integer")
     if type(torch_threads) is not int or torch_threads < 1:
         raise ValueError("torch_threads must be positive")
+    if type(uniform_warmup_decisions) is not int or uniform_warmup_decisions < 0:
+        raise ValueError("uniform_warmup_decisions must be a nonnegative integer")
+    if type(random_training_starts) is not bool or type(capture_diagnostics) is not bool:
+        raise ValueError("Diagnostic flags must be booleans")
+    if algorithm != "td3" and uniform_warmup_decisions:
+        raise ValueError("Separate behavior warmup is supported for TD3 only")
     config = config or (SACConfig() if algorithm == "sac" else TD3Config())
     if not isinstance(config, SACConfig if algorithm == "sac" else TD3Config):
         raise ValueError("Configuration does not match algorithm")
@@ -102,6 +111,34 @@ def train_online(
     training_distance = 0.0
     replay, agent, info, stats = None, None, None, {}
     phase, status = "initialization", "failed"
+    coverage = np.zeros(64, dtype=np.int64)
+    maximum_episode_progress = 0.0
+    reset_rows = []
+
+    def training_reset(episode, first_decision):
+        reset_seed = seed + episode
+        start = (
+            float(np.random.default_rng(reset_seed).uniform(0, env.env.track.length))
+            if random_training_starts
+            else 0.0
+        )
+        observation, reset_info = env.reset(
+            seed=reset_seed, options={"start_distance": start} if random_training_starts else None
+        )
+        if capture_diagnostics:
+            import hashlib
+
+            reset_rows.append(
+                dict(
+                    episode=episode,
+                    first_decision=first_decision,
+                    seed=reset_seed,
+                    start_distance_metres=start,
+                    reset_state_sha256=hashlib.sha256(env.env.state().tobytes()).hexdigest(),
+                )
+            )
+        return observation, reset_info
+
     try:
         with meter.measure("initialization"):
             agent_class = SACAgent if algorithm == "sac" else TD3Agent
@@ -109,7 +146,7 @@ def train_online(
             replay = NStepReplay(
                 config.replay_capacity, 168, gamma=config.gamma, n_step=config.n_step, seed=seed
             )
-            observation, info = env.reset(seed=seed)
+            observation, info = training_reset(0, 1)
             metadata = dict(
                 algorithm=getattr(agent, "algorithm", "SAC-3step"),
                 adapter_version=ADAPTER_VERSION,
@@ -129,6 +166,9 @@ def train_online(
                 observation_names=list(SAC_OBSERVATION_NAMES),
                 requested_steps=steps,
                 reward_profile=reward_profile,
+                uniform_warmup_decisions=uniform_warmup_decisions,
+                random_training_starts=random_training_starts,
+                capture_diagnostics=capture_diagnostics,
                 benchmark_hash=benchmark_hash,
                 device=str(agent.device),
                 torch_threads=torch_threads,
@@ -140,7 +180,11 @@ def train_online(
                 checkpoint_resume_supported=False,
                 exploration=f"uniform first {config.start_steps} decisions then Gaussian SAC"
                 if algorithm == "sac"
-                else "Gaussian noisy actor from decision one; no uniform warmup or launch assistance",
+                else (
+                    f"uniform first {uniform_warmup_decisions} decisions, then Gaussian noisy actor; learning still starts at {config.start_steps} transitions"
+                    if uniform_warmup_decisions
+                    else "Gaussian noisy actor from decision one; no uniform warmup or launch assistance"
+                ),
             )
             metadata["configuration_hash"] = config_hash(metadata)
             write_json(output / "run.json", metadata)
@@ -152,6 +196,9 @@ def train_online(
                 replace(task, max_laps=4),
                 seed=10000,
                 reward_profile=reward_profile,
+                trajectory_output=output / "trajectories" / "initial"
+                if capture_diagnostics
+                else None,
             )
             write_json(output / "evaluation_initial.json", initial)
             eval_decisions += sum(row["decisions"] for row in initial["rows"])
@@ -171,6 +218,8 @@ def train_online(
             "entropy_loss",
             "alpha",
         ]
+        if capture_diagnostics:
+            fields += ["visited_training_bins", "maximum_episode_progress_laps"]
         episode_fields = [
             "episode",
             "decision",
@@ -199,7 +248,8 @@ def train_online(
                 with meter.measure("action_selection"):
                     action = (
                         env.action_space.sample()
-                        if algorithm == "sac" and collected < config.start_steps
+                        if (algorithm == "sac" and collected < config.start_steps)
+                        or (algorithm == "td3" and collected < uniform_warmup_decisions)
                         else agent.act(observation)
                     )
                 if collected >= config.start_steps and len(replay) >= config.batch_size:
@@ -224,6 +274,10 @@ def train_online(
                         observation, action, reward, next_observation, terminated, truncated
                     )
                 collected += 1
+                if capture_diagnostics:
+                    index = int(env.env.last_s / env.env.track.length * len(coverage))
+                    coverage[index % len(coverage)] += 1
+                    maximum_episode_progress = max(maximum_episode_progress, info["progress"])
                 observation = next_observation
                 episode_return += reward
                 if terminated or truncated:
@@ -246,7 +300,7 @@ def train_online(
                         episode_file.flush()
                         episodes += 1
                         episode_start, episode_return = decision, 0.0
-                        observation, info = env.reset(seed=seed + episodes)
+                        observation, info = training_reset(episodes, decision + 1)
                 if decision % 1000 == 0 or decision == steps:
                     with meter.measure("logging_and_resets"):
                         resources = meter.report()
@@ -261,6 +315,14 @@ def train_online(
                                 cpu_seconds=resources["process_cpu_seconds"],
                                 peak_rss_bytes=resources["memory"]["peak_rss_bytes"],
                                 sample_presentations=agent.updates * config.batch_size,
+                                **(
+                                    dict(
+                                        visited_training_bins=int(np.count_nonzero(coverage)),
+                                        maximum_episode_progress_laps=maximum_episode_progress,
+                                    )
+                                    if capture_diagnostics
+                                    else {}
+                                ),
                                 **stats,
                             )
                         )
@@ -347,7 +409,9 @@ def train_online(
             replay_size=len(replay) if replay else 0,
             replay_capacity=config.replay_capacity,
             replay_allocated_bytes=replay_bytes(replay) if replay else 0,
-            random_action_decisions=min(collected, config.start_steps) if algorithm == "sac" else 0,
+            random_action_decisions=min(
+                collected, config.start_steps if algorithm == "sac" else uniform_warmup_decisions
+            ),
             external_dataset_transitions=0,
             expert_dataset_used=False,
             expert_controller_queries=0,
@@ -360,6 +424,15 @@ def train_online(
         elif agent:
             replay.flush()
             agent.save(output / "interrupted.pt", dict(metadata, result=result))
+        if capture_diagnostics:
+            result["diagnostics"] = dict(
+                training_position_counts_64_bins=coverage.tolist(),
+                visited_training_bins=int(np.count_nonzero(coverage)),
+                maximum_episode_progress_laps=maximum_episode_progress,
+                coverage_definition="64 equal centreline-distance bins; post-step training poses only, including off-road poses; reset coverage is not driving ability",
+                final_partial_episode_progress_laps=info["progress"] if info else None,
+            )
+            write_json(output / "training_resets.json", reset_rows)
         write_json(output / "result.json", result)
         env.close()
     return result

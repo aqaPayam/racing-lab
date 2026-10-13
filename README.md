@@ -96,6 +96,15 @@ Reports include learning curves, every seed's outcomes, held-out tests, training
 data counts, CPU/wall time and memory. The default queue is sequential; `--workers 4`
 enables concurrent CPU training and records that timing condition.
 
+For the separate four-condition, three-seed TD3 follow-up:
+
+```sh
+python -m racing_lab.cli diagnose-td3 --output results/td3-diagnostic --workers 4
+```
+
+The [diagnostic pilot guide](docs/td3-diagnostic-pilot.md) documents every change,
+the 600,000-decision budget, paired Monza evaluations and training-cost accounting.
+
 ## Drive alongside a trained SAC ghost
 
 On this workspace, double-click **play-sac-ghost.bat** to race the trained 200k Monza checkpoint. For your own checkpoint:

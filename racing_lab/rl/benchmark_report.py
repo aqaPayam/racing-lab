@@ -47,7 +47,7 @@ def _evaluation_files(directory, result):
     return files
 
 
-def _validate_evaluation(report, path, manifest):
+def _validate_evaluation(report, path, manifest, *, training_reward_profile="common"):
     from dataclasses import replace
     from .config import RacingTaskConfig
     from .environment import SACRacingEnv
@@ -68,7 +68,7 @@ def _validate_evaluation(report, path, manifest):
     }:
         raise ValueError("Evaluation task or reset variation differs from the protocol")
     if (
-        report.get("training_reward_profile") != "common"
+        report.get("training_reward_profile") != training_reward_profile
         or report.get("evaluation_reward_profile") != "common"
     ):
         raise ValueError("Reward ablation cannot enter the common benchmark")
@@ -102,9 +102,11 @@ def _validate_evaluation(report, path, manifest):
             env.close()
 
 
-def collect_runs(root):
+def collect_runs(root, *, diagnostic=False):
     root = Path(root)
     manifest = _read(root / "manifest.json")
+    if bool(manifest.get("kind") == "td3_diagnostic") != diagnostic:
+        raise ValueError("Diagnostic conditions require their separate report")
     if (
         config_hash({k: v for k, v in manifest.items() if k != "benchmark_hash"})
         != manifest["benchmark_hash"]
@@ -182,7 +184,12 @@ def collect_runs(root):
             raise ValueError("Completed worker is missing required evaluation artifacts")
         evaluations = [(path, _read(path)) for path in files]
         for path, report in evaluations:
-            _validate_evaluation(report, path, manifest)
+            expected_reward = (
+                manifest["conditions"][spec["condition"]]["reward_profile"]
+                if diagnostic
+                else "common"
+            )
+            _validate_evaluation(report, path, manifest, training_reward_profile=expected_reward)
             if report["gradient_updates"] != 0 or not report["deterministic"]:
                 raise ValueError("Evaluation must be frozen and deterministic")
             for row in report["rows"]:

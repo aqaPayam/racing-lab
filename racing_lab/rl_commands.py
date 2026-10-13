@@ -81,6 +81,18 @@ def add_sac_commands(commands):
     )
     p.add_argument("--input", required=True)
     p.set_defaults(func=_report_benchmark)
+    p = commands.add_parser("diagnose-td3", help="Run all four frozen TD3 diagnostic conditions")
+    p.add_argument("--output", required=True)
+    p.add_argument("--steps", type=int, default=50_000)
+    p.add_argument("--seeds", type=int, nargs="+", default=[5, 6, 7])
+    p.add_argument("--workers", type=int, default=1)
+    p.add_argument("--continue-queue", action="store_true")
+    p.set_defaults(func=_diagnose_td3)
+    p = commands.add_parser(
+        "report-td3-diagnostic", help="Validate and report the diagnostic pilot"
+    )
+    p.add_argument("--input", required=True)
+    p.set_defaults(func=_report_diagnostic)
 
 
 def _train_td3(args):
@@ -155,3 +167,19 @@ def _report_benchmark(args):
     from .rl.benchmark_report import generate_report
 
     generate_report(args.input)
+
+
+def _diagnose_td3(args):
+    from .rl.diagnostic import DiagnosticConfig, run_diagnostic
+
+    run_diagnostic(
+        args.output,
+        DiagnosticConfig(steps=args.steps, seeds=tuple(args.seeds), workers=args.workers),
+        continue_queue=args.continue_queue,
+    )
+
+
+def _report_diagnostic(args):
+    from .rl.diagnostic_report import generate_diagnostic_report
+
+    generate_diagnostic_report(args.input)

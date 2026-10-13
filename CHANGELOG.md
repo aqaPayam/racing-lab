@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a frozen four-condition TD3 diagnostic pilot with behavior-only random warmup, stationary random training starts, CTH reward comparison, paired Monza evaluations and separate data/compute reports. Preserve existing learning defaults and the completed five-seed benchmark.
 - Retry transient Windows reader locks when replacing benchmark status JSON, while retaining atomic writes and propagating persistent permission failures. Added after the completed five-seed experiment; its frozen training source and results remain unchanged.
 
 ## 0.10.0 — TD3 and accounted online benchmarks
