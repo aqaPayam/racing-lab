@@ -3,6 +3,7 @@
 # ruff: noqa: E402
 from dataclasses import asdict, replace
 import json
+import zipfile
 
 import pytest
 
@@ -16,6 +17,7 @@ from racing_lab.rl.diagnostic import (
     controller_lock,
     make_diagnostic_manifest,
     run_diagnostic_worker,
+    _source_snapshot,
 )
 from racing_lab.rl.diagnostic_report import collect_diagnostic, generate_diagnostic_report
 from racing_lab.rl.benchmark_report import collect_runs
@@ -146,6 +148,23 @@ def test_second_controller_cannot_acquire_live_queue(tmp_path):
                 pytest.fail("Two live controllers acquired the same queue")
     with controller_lock(tmp_path):
         pass
+
+
+def test_installed_package_can_save_exact_source_without_git(tmp_path):
+    package = tmp_path / "installed/racing_lab"
+    package.mkdir(parents=True)
+    (package / "module.py").write_bytes(b"example = 1\r\n")
+    (package / "tracks").mkdir()
+    (package / "tracks/monza.json").write_bytes(b"{}\r\n")
+    (package / "__pycache__").mkdir()
+    (package / "__pycache__/module.pyc").write_bytes(b"ignored")
+    output = tmp_path / "report"
+    output.mkdir()
+    snapshot = _source_snapshot(output, workspace=package.parent)
+    with zipfile.ZipFile(output / snapshot["file"]) as archive:
+        assert archive.read("racing_lab/module.py") == b"example = 1\r\n"
+        assert archive.read("racing_lab/tracks/monza.json") == b"{}\r\n"
+        assert len(archive.namelist()) == 2
 
 
 @pytest.mark.parametrize(

@@ -125,7 +125,8 @@ summary = run_diagnostic("results/td3-diagnostic", DiagnosticConfig(workers=4))
 
 Per-run `run.json`, `result.json`, `worker_result.json`, `learning.csv`, `episodes.csv`,
 `training_resets.json` and frozen-evaluation trajectories provide raw evidence. The
-root includes the manifest and a ZIP with exact tracked source/track bytes. Reports
+root includes the manifest and a ZIP with exact tracked source/track bytes (or
+installed package source/assets when used without a Git checkout). Reports
 include HTML, CSV/JSON metrics, learning/outcome/coverage figures and validation.
 Generated results and policies remain git-ignored. The completed original benchmark
 is preserved as a separate experiment.

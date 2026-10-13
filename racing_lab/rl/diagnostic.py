@@ -123,13 +123,22 @@ def controller_lock(root):
             unlock()
 
 
-def _source_snapshot(root):
-    workspace = Path(__file__).resolve().parents[2]
-    files = (
-        subprocess.check_output(["git", "ls-files", "-z"], cwd=workspace)
-        .decode("utf-8")
-        .split("\0")
-    )
+def _source_snapshot(root, *, workspace=None):
+    workspace = Path(workspace) if workspace is not None else Path(__file__).resolve().parents[2]
+    if (workspace / ".git").exists():
+        files = (
+            subprocess.check_output(["git", "ls-files", "-z"], cwd=workspace)
+            .decode("utf-8")
+            .split("\0")
+        )
+        scope = "Exact working-tree bytes of tracked files, including original line endings"
+    else:
+        files = [
+            str(path.relative_to(workspace))
+            for path in sorted((workspace / "racing_lab").rglob("*"))
+            if path.is_file() and "__pycache__" not in path.parts
+        ]
+        scope = "Installed package source and assets; no Git checkout required"
     path = root / "source_snapshot.zip"
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name in files:
@@ -138,7 +147,7 @@ def _source_snapshot(root):
     return dict(
         file=path.name,
         sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-        scope="Exact working-tree bytes of tracked files, including original line endings",
+        scope=scope,
     )
 
 
