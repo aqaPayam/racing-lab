@@ -100,6 +100,7 @@ network sizes, replay capacity, update counts and compute are source-specific.
 
 | Original TD3 setting | Racing Lab decision |
 | --- | --- |
+| Random longitudinal starts around the whole circuit | One fixed standing start for every training episode; evaluation jitter changes lateral position only |
 | Absolute steering and target speed | Shared three increments; no speed-controller supervision |
 | Two LiDAR scans plus speed (41 fields) | Shared 168-number numerical history |
 | 10 Hz training, normally 25 Hz evaluation | Shared 25 Hz; source gamma remains .99 per decision |
@@ -108,6 +109,19 @@ network sizes, replay capacity, update counts and compute are source-specific.
 | Eager float64 replay/global NumPy RNG | Lazy float32 replay, separate seeded random streams |
 | Episode-ended mask | Failure removes bootstrap; time-limit cutoff retains gamma bootstrap |
 | Scaled RC model/layouts | Existing generic vehicle and inspired layouts; simulator 0.5.0 unchanged |
+
+These task substitutions matter empirically. The October 12 five-seed comparison
+completed, but no recorded TD3 training episode reached 19% of Monza. Four final
+TD3 policies failed at the first chicane without timely braking; the fifth hit a
+barrier near the start and stalled. SAC seeds 0, 1 and 4 completed four laps, but
+only seed 0 kept all four strictly valid. See the
+[post-benchmark implementation and failure audit](online-rl-paper-audit.md#post-benchmark-failure-audit-13-october-2026).
+
+Preserving a per-decision discount does not preserve its horizon in seconds after
+changing control frequency. TD3's source training uses 10 Hz, while this shared task
+uses 25 Hz: gamma .99 therefore has an approximately 4-second rather than 10-second
+discount horizon. A timing-restored or time-adjusted-discount experiment must be
+separately declared, rather than silently changing the completed protocol.
 
 `train-td3 --reward-profile progress` or `cth` provides **reward ablations on the
 shared task**, not a full paper-task reproduction. Progress reward is 100 times

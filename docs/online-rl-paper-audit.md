@@ -1,6 +1,6 @@
 # Online RL racing papers and reproduction audit
 
-Research date: 11 October 2026. Status: SAC with three-step returns has been implemented as a documented Racing Lab adaptation; see the [baseline implementation](sac-baseline.md). The other candidates remain proposals, and full benchmark comparisons have not been run.
+Research started 11 October 2026; updated 13 October 2026. SAC and TD3 are implemented as documented Racing Lab adaptations, and the first five-seed shared-task comparison is complete. The original papers' full experiments have not been reproduced. Other candidates remain proposals; see the [SAC implementation](sac-baseline.md) and the post-benchmark audit below.
 
 Update, 12 October 2026: TD3 is implemented with pinned-source numerical parity,
 shared-task controls and corrected replay accounting. The [online benchmark protocol](online-benchmark.md)
@@ -111,9 +111,96 @@ At 25 Hz, a three-step return spans 0.12 seconds; at 60 Hz it spans 0.05 seconds
 
 For main results, measure valid-lap completion first and lap time conditional on validity. Also publish progress before failure, collision/off-road counts, learning curves and performance across independent seeds. Define validity, checkpoint selection, training/validation families and any held-out-family test before seeing test performance. Best observed lap time may be a supplementary paper-comparable statistic, but alone does not measure reliability. This paragraph is a proposed Racing Lab evaluation design.
 
-## Next implementation chain
+## Post-benchmark failure audit: 13 October 2026
 
-Implementation update: steps 1–3 below are complete for the first SAC adaptation and are documented in the [SAC guide](sac-baseline.md). A 3,000-decision CPU pilot verifies the runner and source-parity tests; it does not establish convergence or freeze a benchmark budget. Step 4 remains the next research experiment. No demonstration-based method has been added to this stage.
+The first shared-task comparison completed five fresh SAC and five fresh TD3 runs
+of 200,000 decisions on Monza, without expert data. This is a short Racing Lab
+comparison, not either paper's original task or a convergence result.
+
+Reverification downloaded the two pinned author repositories again and matched all
+seven learner fixture files to their recorded SHA-256 hashes. All 35 SAC, TD3 and
+benchmark checks passed, including numerical initialization/update parity,
+three-step returns, terminal/truncation isolation, replay wraparound and evaluator
+isolation. Deterministic checkpoint actions also reproduce every action in the ten
+stored final Monza trajectories exactly. No loss-sign, target-update, action-order,
+bootstrap-mask or nonfinite-loss error was found in the inspected implementation.
+These checks cover the tested cases; they do not prove the absence of all bugs.
+
+### Established observations
+
+- The maximum progress in a completed TD3 training episode was 18.52% of the
+  circuit. No recorded episode reached a quarter lap. Four final policies reached
+  approximately 242 km/h and failed around the first chicane, at 17.1–17.2% progress.
+  Seed 1 applied full steering, hit a barrier near the start and stalled.
+- TD3 seeds 0, 2 and 4 never applied brake above 0.1 after the first three seconds;
+  seed 3 did so only on its final decision. Thus the trace supports a failure to
+  learn anticipatory braking, not simply an overly slow simulator.
+- The final TD3 pedal outputs often saturate. For an incremental brake command with
+  actor mean -1 and Gaussian noise standard deviation .1, the chance of a positive
+  increment is approximately 7.6e-24. At the released-brake floor, almost all such
+  noisy actions leave braking unchanged. This is an exploration mechanism that can
+  explain a trap; its causal importance still needs an ablation.
+- SAC seeds 0, 1 and 4 completed four laps. Their valid-lap counts were 4, 0 and 1;
+  their off-road decision counts were 0, 112 and 24. Seed 2 failed at the first
+  chicane; seed 3 completed one invalid lap and then stopped with full braking.
+  Completing a lap and completing a strictly clean lap are different outcomes.
+
+### Why the paper recipes may transfer poorly
+
+| Factor | Verified original setting | Completed common-task setting |
+| --- | --- | --- |
+| TD3 start distribution | Random positions along the whole track, confirmed in the paper and source simulator | The same standing start every episode, concentrating failed runs on the first straight/corner |
+| TD3 actions | Absolute steering and target speed; physical speed tracking in the simulator | Three steering/throttle/brake increments; no target-speed controller |
+| TD3 exploration | Gaussian actor noise .1 on its original absolute actions, with a low-speed launch rule | Same noise magnitude on incremental actions; launch rule removed; no uniform random warmup |
+| TD3 reward | Progress or CTH with completion +1 and crash -1; TAL is controller-assisted and excluded here | SAC-style speed/centerline reward, without explicit collision or off-road penalties |
+| TD3 clock | Source training overrides ten 10-ms simulation steps, giving 10 Hz | 25 Hz with gamma .99 per decision: approximately 2.5 times shorter physical discount horizon |
+| TD3 inputs | Two 20-beam scans and speed: 41 numbers | 168 telemetry/history numbers, retaining its 100-by-100 network |
+| SAC budget | Appendix E.1: four days at about 2M decisions/day, approximately 8M | 200k decisions: about 2.5% of that budget |
+| SAC validity | Published early termination allows fewer than three wheels off-track | Strict lap scoring rejects any recorded vehicle-envelope road crossing, collision or recovery |
+
+The reward/validity mismatch is established: the common reward softly penalizes
+centerline distance, while strict lap scoring rejects a single road-envelope
+violation. It does not explicitly optimize the reported clean-lap criterion. The
+reasons a particular seed settles into a failure pattern remain hypotheses until
+controlled experiments separate reset distribution, exploration, reward and timing.
+Network capacity and sensor substitutions also differ; they are not isolated causes
+in this comparison.
+
+### Recommended next experiment, without expert data
+
+First run a diagnostic TD3 pilot, retaining the completed results unchanged. Use
+three fresh, predeclared seeds (5, 6, 7), 50,000 decisions per condition and four
+conditions: the existing common task, a 2,000-decision uniform random warmup,
+random longitudinal training starts, and the existing CTH-style reward. Change one
+factor per condition. Total: 600,000 online decisions. The warmup is a new Racing Lab
+adaptation, not an original-author TD3 default. In that condition only behavior
+actions change for the first 2,000 decisions; learning still starts after 100
+transitions, preserving the original optimizer schedule. CTH's unit substitutions and
+termination differences must remain explicit.
+
+Compare progress coverage, first-corner braking, action saturation, valid laps and
+cost on Monza training/validation starts. Keep the same three-channel controls,
+observations, network, other hyperparameters and final-budget selection. Do not tune
+against Silverstone/Spa/Suzuka. This pilot tests hypotheses; it is not a final
+algorithm ranking and does not isolate interactions between the changed factors.
+
+After diagnosing the bottleneck, freeze a new common profile and run both methods
+from scratch for five seeds at a longer declared budget, provisionally 1M decisions
+per run. Estimate cost first. Existing inference checkpoints omit replay/RNG state
+and cannot be used for an exact continuation of the completed experiment. A native
+TD3 target-speed/control-frequency profile can be studied separately; its different
+action/control task must not be pooled into the shared-task ranking. TAL, human
+datasets, expert query labels and pretrained policies remain excluded.
+
+Primary references: [SAC final paper, Appendix E.1](https://proceedings.neurips.cc/paper_files/paper/2024/file/b91ea2ba1b6521940e204b7b81d5ef47-Paper-Datasets_and_Benchmarks_Track.pdf),
+[TD3 paper, Sections III-E and IV-B](https://arxiv.org/html/2402.18558v2),
+[TD3 author controller](https://github.com/BDEvan5/f1tenth_benchmarks/blob/c9730789dd0fa85fc18dd4b600c5246e134ebe22/f1tenth_benchmarks/drl_racing/EndToEndAgent.py),
+[TD3 training experiment](https://github.com/BDEvan5/f1tenth_benchmarks/blob/c9730789dd0fa85fc18dd4b600c5246e134ebe22/f1tenth_benchmarks/benchmark_results/train_drl_agent.py),
+[simulator defaults](https://github.com/BDEvan5/f1tenth_benchmarks/blob/c9730789dd0fa85fc18dd4b600c5246e134ebe22/params/simulator_params.yaml).
+
+## Original implementation plan: 11 October 2026
+
+This historical plan preceded the completed comparison. Steps 1–4 have since been carried out; the current recommended diagnostic experiment is specified in the post-benchmark audit above. The original 3,000-decision CPU pilot verified the runner, not convergence. No demonstration-based method has been added to this stage.
 
 1. Freeze a SAC specification with every setting marked paper-confirmed, code-confirmed, differing or unavailable. Resolve the discrepancy table and choose the declared profile.
 2. Create an adapter ledger for observation ordering/units/history, action increments/clipping/reset, policy timing, reward scale, launch/reset assistance and episode ends. Require an explanation for every difference.
