@@ -119,6 +119,11 @@ The reference is the agent's first clean standing-start lap, rather than its fas
 
 ## Documentation
 
+An optional [Assetto Corsa integration](integrations/assetto_corsa/README.md)
+connects the original game to the authors' numerical environment and a released
+Monza GT3 SAC reference. It uses a separate runtime and keeps native-game results
+separate from Racing Lab's completed SAC–TD3 benchmark.
+
 - [Driving and validation](docs/driving.md): steering aid, real-time scheduling, GPU setup, and verification.
 - [Physics model](docs/physics.md): tyre forces, aero, load transfer, parameters, and compatibility.
 - [Research guide](docs/research-guide.md): dynamics, tracks, observations, data schema, and limitations.

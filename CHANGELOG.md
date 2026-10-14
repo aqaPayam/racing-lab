@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add an optional original Assetto Corsa numerical bridge and frozen released-SAC playback, isolated Python 3.9 CPU dependencies, safe management-protocol parsing, and a documented three-clean-lap Monza/BMW Z4 GT3 reference. Keep native-game settings/results separate from Racing Lab's simulator and training benchmarks.
 - Add a frozen four-condition TD3 diagnostic pilot with behavior-only random warmup, stationary random training starts, CTH reward comparison, paired Monza evaluations and separate data/compute reports. Preserve existing learning defaults and the completed five-seed benchmark.
 - Retry transient Windows reader locks when replacing benchmark status JSON, while retaining atomic writes and propagating persistent permission failures. Added after the completed five-seed experiment; its frozen training source and results remain unchanged.
 
